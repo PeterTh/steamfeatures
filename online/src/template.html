@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <meta name="description" content="Find Steam games by their advertised features. Compare badges, explore missing features, and share filtered views.">
+  <title>Steam Feature Atlas</title>
+  <link rel="preload" href="./fonts/roboto-condensed-variable.woff" as="font" type="font/woff" crossorigin>
+  <link rel="icon" href="./brand.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="./style.css">
+  <script type="module" src="./app.js"></script>
+</head>
+<body>
+  <svg class="svg-defs" aria-hidden="true"><defs id="icon-defs"></defs></svg>
+  <main>
+    <header class="masthead">
+      <div class="brand"><img class="brand-mark" src="./brand.svg" alt="" aria-hidden="true" width="48" height="36"><h1>Steam Feature Atlas</h1></div>
+      <nav class="views" aria-label="Views"><div id="presets"></div></nav>
+      <div class="header-actions">
+        <button id="about" type="button" class="subtle-button" aria-haspopup="dialog" aria-controls="about-dialog"><span>About &amp; FAQ</span></button>
+        <button id="share" type="button" class="subtle-button"><span id="share-label">Copy link</span></button>
+      </div>
+      <span id="share-status" class="sr-only" role="status"></span>
+    </header>
+    <form id="filters" class="query-panel" aria-label="Filter games">
+      <fieldset id="query-controls" disabled>
+        <div class="search-row">
+          <label class="search-label" for="search">Game title<input type="search" id="search" placeholder="Find a game by title…" autocomplete="off"></label>
+          <label for="release">Release status<select id="release"><option value="released">Released</option><option value="upcoming">Upcoming</option><option value="all">All / unknown</option></select></label>
+          <div class="sort-control"><label for="sort">Sort by</label><div class="sort-inputs"><select id="sort"><option value="score">Feature Score</option><option value="features">Features</option><option value="rating">Review Score</option><option value="reviews">Review Count</option><option value="title">Title</option><option value="release">Release date</option></select><div class="sort-direction" role="group" aria-label="Sort direction"><button id="sort-asc" type="button" aria-label="Sort ascending" aria-pressed="false" title="Ascending"><svg class="icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M12 20V4m-6 6 6-6 6 6"/></svg></button><button id="sort-desc" type="button" aria-label="Sort descending" aria-pressed="true" title="Descending"><svg class="icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M12 4v16m-6-6 6 6 6-6"/></svg></button></div></div></div>
+        </div>
+        <div class="filter-row">
+          <label class="toggle-control"><input id="early-access" type="checkbox"><span class="switch" aria-hidden="true"></span><span>Include Early Access</span></label>
+          <label class="toggle-control"><input id="accessibility" type="checkbox"><span class="switch" aria-hidden="true"></span><span>Count accessibility features</span></label>
+          <label class="toggle-control" title="Include multiplayer modes, Remote Play Together, anti-cheat, turn notifications, and chat accessibility in columns, counts, and scores."><input id="multiplayer" type="checkbox"><span class="switch" aria-hidden="true"></span><span>Count multiplayer features</span></label>
+          <label class="reviews-control" for="min-reviews"><span>Minimum reviews</span><input id="min-reviews" type="number" min="0" step="1" value="20" inputmode="numeric"></label>
+          <button id="reset" type="button" class="reset-button">Reset filters</button>
+        </div>
+        <div class="filter-pickers">
+          <div class="picker-tabs" aria-label="Feature and tag filters">
+            <button id="feature-toggle" class="picker-toggle" type="button" aria-label="Require or exclude features" aria-expanded="false" aria-controls="feature-picker"><span class="picker-prefix">Require or exclude </span>features <span id="active-count" class="pill">0</span></button>
+            <button id="tag-toggle" class="picker-toggle" type="button" aria-label="Require or exclude tags" aria-expanded="false" aria-controls="tag-picker"><span class="picker-prefix">Require or exclude </span>tags <span id="active-tag-count" class="pill">0</span></button>
+            <label id="feature-search-control" class="picker-search" for="feature-search" hidden><span class="sr-only">Find a feature</span><input id="feature-search" type="search" placeholder="Find a feature…" autocomplete="off" aria-controls="feature-options"></label>
+            <label id="tag-search-control" class="picker-search" for="tag-search" hidden><span class="sr-only">Find a tag</span><input id="tag-search" type="search" placeholder="Find a tag…" autocomplete="off" aria-controls="tag-options"></label>
+          </div>
+          <section id="feature-picker" class="picker-panel" aria-label="Feature filters" hidden>
+          <div id="feature-options" class="feature-options"></div>
+          </section>
+          <section id="tag-picker" class="picker-panel" aria-label="Tag filters" hidden>
+            <div id="tag-options" class="feature-options tag-options"></div>
+            <p id="tag-empty" class="tag-coverage" role="status" hidden>No tags match your search.</p>
+          </section>
+        </div>
+        <div id="active-filters" class="active-filters" aria-label="Active feature and tag filters"></div>
+      </fieldset>
+    </form>
+    <div id="error" class="error-banner" role="alert" hidden><p id="error-message"></p><button id="retry" type="button">Try loading again</button><button id="error-reset" type="button">Reset filters</button></div>
+    <div id="loading" class="loading-state" role="status"><span class="loading-dot"></span><span id="loading-message">Loading the complete game catalog…</span></div>
+    <section id="results" aria-label="Matching games" hidden>
+      <div class="table-toolbar"><p id="result-summary" role="status" aria-live="polite"></p><div class="legend"><span><b class="legend-check">✓</b> Listed</span><span><b class="legend-dash">–</b> Not listed</span><span><b>?</b> Unknown</span><span class="hover-hint">Hover or tap icons for details</span></div></div>
+      <p id="view-note" class="view-note" hidden></p>
+      <div id="matrix-region" class="matrix-region" role="region" aria-label="Scrollable game feature matrix" tabindex="0">
+        <table id="matrix"><caption class="sr-only">Steam games, weighted feature scores, raw counts, and advertised features. Equal scores or counts share a rank when sorted by that measure.</caption><thead id="matrix-head"></thead><tbody id="matrix-body"></tbody></table>
+        <div id="empty-state" class="empty-state" hidden><span class="empty-icon" aria-hidden="true">⌕</span><h3>No games match these filters</h3><p>Try removing a feature or tag filter, or lowering the review threshold.</p><button id="empty-reset" type="button">Reset filters</button></div>
+      </div>
+      <nav class="pagination" aria-label="Result pages"><button id="previous" type="button">← Previous</button><span id="page-summary"></span><label for="page" class="sr-only">Go to page</label><input id="page" type="number" min="1" value="1" inputmode="numeric"><button id="go-page" type="button">Go</button><button id="next" type="button">Next →</button></nav>
+    </section>
+    <details class="methodology"><summary>About the data &amp; counting rules <span class="footer-meta"><span id="package-summary"></span><span class="copyright">Steam Feature Atlas © 2026 Peter Thoman</span></span></summary>
+      <div class="method-content">
+        <p><strong>Feature Score:</strong> Steam Cloud +3; Steam Achievements +2; In-App Purchases −1; Gamepad Recommended, Includes Source SDK and VR Only 0; other features +1. Feature Count includes zero- and negative-point badges. The maximum score sums positive weights.</p>
+        <p>Counting toggles change columns, counts and scores; active filters still apply. Tags do not affect scores or counts. All requirements and exclusions apply together. Games with unknown feature or tag data cannot satisfy filters for that data. Set Minimum reviews to 0 to include unknown review counts. Excluding Early Access also excludes unknown Early Access status.</p>
+        <p><strong>Review Score:</strong> the percentage of positive reviews. Steam review counts cover Steam purchases in all languages; older counts may use different rules.</p>
+        <p>Badges are publisher claims and may be incomplete or inaccurate. Missing Steam Cloud does not rule out another cloud-save service.</p>
+        <p id="method-dates"></p>
+        <p class="data-links">Sources: <a href="https://store.steampowered.com/" target="_blank" rel="noopener noreferrer">Steam</a> · <a href="https://github.com/BlueBoxWare/steamdb" target="_blank" rel="noopener noreferrer">BlueBoxWare/steamdb</a> (<a href="./licenses/BlueBoxWare-MIT.txt">MIT</a>) · <a href="https://github.com/leinstay/steamdb" target="_blank" rel="noopener noreferrer">leinstay/steamdb</a> (<a href="./licenses/leinstay-GPL-3.0.txt">GPL-3.0</a>) · <a href="./licenses/NOTICE.txt">Data attribution</a></p>
+        <p class="legal-note">Steam and the Steam logo are trademarks of Valve Corporation. All other trademarks are property of their respective owners.<br>Steam Feature Atlas is not affiliated with Valve or Steam.</p>
+      </div>
+    </details>
+  </main>
+  <dialog id="about-dialog" class="about-dialog" aria-labelledby="about-title">
+    <div class="about-header"><h2 id="about-title">About &amp; FAQ</h2><button id="about-close" type="button" aria-label="Close About &amp; FAQ" autofocus><svg class="icon" aria-hidden="true" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div>
+    <div id="about-content">
+      <p>This is a just-for-fun project to allow quick browsing of the Steam catalog with a focus on features and tags.</p>
+      <p>It is not and will never be commercial in any way, and all the data/navigation/filtering happens locally in your browser.</p>
+      <h3>FAQ</h3>
+      <section class="faq-item" aria-labelledby="faq-why">
+        <h4 id="faq-why">Why?</h4>
+        <p>Two reasons:</p>
+        <ul>
+          <li>I've wanted something like this for almost a decade; SteamDB is close, but with a different focus. Now, if I e.g. want to see all metroidvanias that have local campaign co-op, sorted by review score, I can <a id="faq-example" href="?v=1&amp;has=shared-split-screen-co-op&amp;tag=Co-op+Campaign&amp;tag=Metroidvania&amp;sort=rating-desc">just do it</a>.</li>
+          <li>I like several Steam features quite a lot, and I feel like Valve doesn't do enough to incentivize developers/publishers to implement them. Maybe a "Feature Score" adds a bit of an incentive.</li>
+        </ul>
+      </section>
+      <section class="faq-item" aria-labelledby="faq-how">
+        <h4 id="faq-how">How?</h4>
+        <p>This takes data from various sources—but primarily Steam itself—and builds a compressed bundle that is loaded directly into your browser. All the processing for filters etc. happens there. The data is updated once a day, but not for the whole catalog, so individual games' data can be older.</p>
+      </section>
+      <section class="faq-item" aria-labelledby="faq-metadata">
+        <h4 id="faq-metadata">Why does game X show / not show feature Y, even though it clearly has / doesn't have that?</h4>
+        <p>Take it up with the developer / publisher or Steam. No, really, please do. I think there should be much stricter enforcement / control of these things, but currently actually keeping this correct is mostly on the publisher.</p>
+      </section>
+      <section class="faq-item" aria-labelledby="faq-shame">
+        <h4 id="faq-shame">What's the "Hall of Shame"?</h4>
+        <p>It's a list of games that are super popular but don't feature Steam Cloud saves (or don't correctly tag themselves as featuring them). It excludes games that don't have the Single-player feature, and MMOs, since both can have good reasons not to feature cloud saves.</p>
+      </section>
+      <section class="faq-item" aria-labelledby="faq-slop">
+        <h4 id="faq-slop">Is this slop?</h4>
+        <p>This was mostly built via LLM, yes. I did use roughly 2 decades of engineering experience to make sure it's not doing anything tremendously stupid, and iterate on the visuals, layout and user-facing text until it wasn't too offensive to my tastes, but your mileage may vary.</p>
+      </section>
+    </div>
+  </dialog>
+  <div id="tooltip" class="tooltip" role="tooltip" hidden></div>
+  <noscript><p class="noscript">Enable JavaScript to load and explore the catalog.</p></noscript>
+</body>
+</html>

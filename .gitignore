@@ -1,0 +1,21 @@
+# Local archives and generated data
+/.local/
+/online/.cache/
+/online/.previous/
+/online/dist/
+/online/test-results/
+node_modules/
+
+# Local configuration and credentials
+.env
+.env.*
+!.env.example
+.codex/
+.vscode/
+.idea/
+
+# Logs and operating-system files
+*.log
+.DS_Store
+Thumbs.db
+Desktop.ini

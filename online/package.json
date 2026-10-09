@@ -1,0 +1,21 @@
+{
+  "name": "steam-feature-atlas",
+  "version": "1.0.0",
+  "description": "A browser-based explorer for Steam features and tags",
+  "license": "MIT",
+  "author": "Peter Thoman",
+  "repository": { "type": "git", "url": "https://github.com/peterth/steamfeatures.git" },
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "test": "node --test test/*.test.mjs test-query/*.test.mjs",
+    "build": "node --max-old-space-size=4096 scripts/build.mjs",
+    "build:fixture": "node scripts/build.mjs --fixture",
+    "verify:site": "node --max-old-space-size=4096 scripts/verify-site.mjs",
+    "package:bootstrap": "node --max-old-space-size=4096 scripts/package-bootstrap.mjs",
+    "benchmark:tags": "node --max-old-space-size=4096 scripts/benchmark-tags.mjs",
+    "import": "node --max-old-space-size=4096 scripts/import-catalog.mjs",
+    "start": "node scripts/serve.mjs"
+  }
+}

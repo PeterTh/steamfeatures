@@ -1,0 +1,8 @@
+Roboto Condensed, version 3.008 (2023)
+Copyright 2011 Google Inc. All Rights Reserved.
+Licensed under the Apache License, Version 2.0; see LICENSE.txt.
+Project: https://github.com/googlefonts/roboto-classic
+
+The original variable TrueType font has been converted to WOFF with fontTools
+4.60.2 for distribution with Steam Feature Atlas. Glyphs and variation axes
+are unchanged. Weight range: 100-900. No external font service is required.

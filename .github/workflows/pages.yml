@@ -1,0 +1,161 @@
+name: Refresh catalog and deploy Pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'online/**'
+      - '!online/provenance-lock.json'
+      - '.github/workflows/pages.yml'
+      - 'LICENSE'
+      - 'THIRD_PARTY_NOTICES.md'
+  schedule:
+    - cron: '17 4 * * *'
+  workflow_dispatch:
+    inputs:
+      bootstrap_release:
+        description: 'First deployment only: release tag containing steam-feature-atlas-bootstrap.tar.gz'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: steam-feature-pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      pages: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Test query engine, importer and integrity checks
+        run: npm test
+        working-directory: online
+      - name: Configure Pages
+        id: pages
+        uses: actions/configure-pages@v5
+      - name: Require an existing completed catalog for normal refreshes
+        if: ${{ !inputs.bootstrap_release }}
+        run: node scripts/verify-site.mjs --published-url "$PAGES_BASE_URL"
+        working-directory: online
+        env:
+          PAGES_BASE_URL: ${{ steps.pages.outputs.base_url }}
+      - name: Download the completed first-deployment package
+        if: ${{ inputs.bootstrap_release }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          BOOTSTRAP_RELEASE: ${{ inputs.bootstrap_release }}
+        run: |
+          mkdir -p online/.cache/bootstrap-download online/dist
+          gh release download "$BOOTSTRAP_RELEASE" --pattern steam-feature-atlas-bootstrap.tar.gz --dir online/.cache/bootstrap-download
+          tar --extract --gzip --file online/.cache/bootstrap-download/steam-feature-atlas-bootstrap.tar.gz --directory online/dist --no-same-owner --no-same-permissions
+      - name: Restore upstream Git object cache
+        if: ${{ !inputs.bootstrap_release }}
+        uses: actions/cache@v4
+        with:
+          path: online/.cache/bluebox
+          key: steam-appdetails-v1-${{ github.run_id }}
+          restore-keys: steam-appdetails-v1-
+      - name: Restore interrupted refresh checkpoint
+        if: ${{ !inputs.bootstrap_release }}
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            online/.cache/steam-refresh-state.json
+            online/.cache/steam-responses
+          key: steam-refresh-v2-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            steam-refresh-v2-
+            steam-refresh-v1-
+      - name: Import pinned bulk sources and build
+        if: ${{ !inputs.bootstrap_release }}
+        run: npm run build
+        working-directory: online
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PAGES_BASE_URL: ${{ steps.pages.outputs.base_url }}
+          STEAM_REFRESH_LIMIT: '4000'
+          STEAM_REQUEST_SPACING_MS: '2000'
+          STEAM_ALLOW_BOOTSTRAP: '0'
+      - name: Save refresh progress, including failed runs
+        if: ${{ always() && !inputs.bootstrap_release }}
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            online/.cache/steam-refresh-state.json
+            online/.cache/steam-responses
+          key: steam-refresh-v2-${{ github.run_id }}-${{ github.run_attempt }}
+      - name: Preserve complete Steam response journals, including failed builds
+        if: ${{ always() && !inputs.bootstrap_release }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: steam-responses-${{ github.run_id }}-${{ github.run_attempt }}
+          path: online/.cache/steam-responses/*.json.gz
+          if-no-files-found: ignore
+          include-hidden-files: true
+          compression-level: 0
+          retention-days: 90
+      - name: Verify production data, checksums and completed refresh state
+        run: node --max-old-space-size=4096 scripts/verify-site.mjs
+        working-directory: online
+      - name: Upload site
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: online/dist
+      - name: Upload small provenance lock
+        uses: actions/upload-artifact@v4
+        with:
+          name: catalog-provenance
+          path: online/dist/provenance-lock.json
+          retention-days: 7
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    outputs:
+      page_url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy validated site
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+  record-provenance:
+    needs: deploy
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/download-artifact@v4
+        with:
+          name: catalog-provenance
+          path: downloaded-provenance
+      - name: Record only the successfully deployed source revisions
+        shell: bash
+        run: |
+          cp downloaded-provenance/provenance-lock.json online/provenance-lock.json
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -- online/provenance-lock.json
+          if ! git diff --cached --quiet; then
+            git commit -m "Record deployed catalog provenance [skip ci]"
+            git push origin HEAD:main
+          fi
