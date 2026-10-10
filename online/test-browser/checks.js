@@ -34,13 +34,14 @@ async (page, options = {}) => {
   let v = await view();
   check('Default filters and 27-column matrix', v.featureColumns === 27 && v.maxScore === 26 && v.filters.minReviews === 20 && !v.filters.includeEarlyAccess && !v.filters.includeAccessibility && !v.filters.includeMultiplayer && v.displayed === 50);
   check('Weighted score is the default sort', v.filters.sort === 'score-desc' && v.games.every((g,i) => !i || g.score <= v.games[i-1].score));
-  check('Sort field and direction have separate compact controls', await page.locator('#sort').inputValue() === 'score' && await page.locator('#sort-desc').getAttribute('aria-pressed') === 'true' && await page.locator('#sort option').allTextContents().then(labels => labels.join(',') === 'Feature Score,Features,Review Score,Review Count,Title,Release date'));
-  check('Score and count have separate visible columns', await page.locator('#matrix-head .fixed-score').count() === 1 && await page.locator('#matrix-head .fixed-count').count() === 1);
-  check('Displayed scores and counts match feature weights', await page.evaluate(async () => {
+  check('Sort field and direction have separate compact controls', await page.locator('#sort').inputValue() === 'score' && await page.locator('#sort-desc').getAttribute('aria-pressed') === 'true' && await page.locator('#sort option').allTextContents().then(labels => labels.join(',') === 'Feature Score,Feature Count,Review Score,Review Count,Title,Release date'));
+  check('Score is visible and raw count uses no table column', await page.locator('#matrix-head .fixed-score').count() === 1 && await page.locator('#matrix .fixed-count').count() === 0);
+  check('Displayed scores and retained counts match feature weights', await page.evaluate(async () => {
     const {features} = await import('./features.mjs'); const weights = new Map(features.map(f => [f.id,f.weight]));
+    const games = new Map(window.steamFeatureAtlas.getView().games.map(game => [game.id, game]));
     return [...document.querySelectorAll('#matrix-body tr')].every(row => {
       const ids = [...row.querySelectorAll('td[data-supported=true]')].map(cell => Number(cell.dataset.feature));
-      return Number(row.querySelector('.fixed-count').textContent) === ids.length && Number(row.querySelector('.fixed-score').textContent) === ids.reduce((sum,id) => sum + weights.get(id),0);
+      return games.get(Number(row.dataset.gameId)).count === ids.length && Number(row.querySelector('.fixed-score').textContent) === ids.reduce((sum,id) => sum + weights.get(id),0);
     });
   }));
   check('Compact header has inline views and no marketing or snapshot labels', await page.locator('.masthead #presets').count() === 1 && await page.locator('.eyebrow,.snapshot').count() === 0);

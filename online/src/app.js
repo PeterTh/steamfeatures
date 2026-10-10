@@ -1,4 +1,5 @@
 import { DEFAULT_QUERY, PRESETS, normalizeQuery, parseQuery, serializeQuery } from './query.mjs';
+import { parseView, serializeView } from './view-state.mjs';
 
 const $ = id => document.getElementById(id);
 const fmt = n => n == null ? 'Unknown' : new Intl.NumberFormat('en-US').format(n);
@@ -9,6 +10,9 @@ let tagOptionsBuilt = false;
 let worker, ready = false, requestId = 0, latestRequest = 0, latestResult = null, inputTimer;
 let tipAnchor = null, tipPinned = false, currentColumn = null, suppressFocusTip = false, columnCells = new Map();
 let tipHideTimer, focusFeatureAfterRender = null;
+let highlightedFeature = null, revealHighlightPending = false;
+let requestedSearch = null, activeQueryRequest = 0;
+let layoutFrame;
 
   const paths = {
     warning: '<path d="M12 3 2 21h20ZM12 9v5m0 3v1"/>',
@@ -79,9 +83,9 @@ let tipHideTimer, focusFeatureAfterRender = null;
     $('view-note').hidden = !state.not.length;
     $('view-note').textContent = 'Excluded features are not listed in the source snapshot. This does not verify whether they work in the game. Records with unknown feature data are excluded.';
     const first = element('tr', 'group-row'), second = element('tr', 'feature-row');
-    for (const [kind, title] of [['rank', '#'], ['game', 'Game'], ['score', 'Score'], ['count', 'Count']]) {
+    for (const [kind, title] of [['rank', '#'], ['game', 'Game'], ['score', 'Score']]) {
       const th = element('th', 'corner fixed-' + kind); th.rowSpan = 2; th.scope = 'col';
-      if (kind === 'count' || kind === 'score') { th.append(element('span', 'corner-count', title), element('span', 'corner-pool', 'of ' + (kind === 'score' ? latestResult.maxScore : visibleFeatures.length))); th.title = kind === 'score' ? 'Weighted feature score. Hover feature icons for their point values.' : 'Number of listed features among the visible columns, including zero-point badges.'; }
+      if (kind === 'score') { th.append(element('span', 'corner-count', title), element('span', 'corner-pool', 'of ' + latestResult.maxScore)); th.title = 'Weighted feature score. Hover feature icons for their point values.'; }
       else th.textContent = title;
       first.append(th);
     }
@@ -107,7 +111,7 @@ let tipHideTimer, focusFeatureAfterRender = null;
       const db = link(`https://steamdb.info/app/${g.id}/`, g.name + ' on SteamDB', 'game-link'); db.title = 'Open SteamDB'; db.append(icon('database'));
       links.append(info, db); cell.append(title); if (g.earlyAccess) { const ea = element('span', 'ea-mark', 'EA'); ea.title = 'Early Access'; cell.append(ea); } cell.append(links); name.append(cell);
       const score = element('td', 'fixed-score', g.score == null ? '?' : String(g.score)); score.setAttribute('aria-label', g.score == null ? 'Feature score unknown' : g.score + ' feature points');
-      const count = element('td', 'fixed-count', g.count == null ? '?' : String(g.count)); count.setAttribute('aria-label', g.count == null ? 'Feature count unknown' : g.count + ' advertised features'); tr.append(rank, name, score, count);
+      tr.append(rank, name, score);
       let group = null;
       for (const f of visibleFeatures) {
         const advertised = g.featureSet.has(f.id), td = element('td', 'feature-cell' + (f.group !== group ? ' group-start' : ''));
@@ -117,9 +121,11 @@ let tipHideTimer, focusFeatureAfterRender = null;
       rows.append(tr);
     }
     $('matrix-body').replaceChildren(rows);
-    $('matrix').style.width = `calc(var(--rank) + var(--game) + var(--score) + var(--count) + ${visibleFeatures.length} * var(--cell))`;
+    $('matrix').style.setProperty('--feature-total', visibleFeatures.length);
+    $('matrix').style.width = `calc(var(--rank) + var(--game) + var(--score) + ${visibleFeatures.length} * var(--cell))`;
     $('empty-state').hidden = view.length > 0; $('matrix').hidden = view.length === 0;
     $('matrix-region').scrollTop = 0;
+    syncHighlight();
     if (focusFeatureAfterRender !== null) {
       suppressFocusTip = true;
       $('feature-' + focusFeatureAfterRender)?.querySelector('button')?.focus({ preventScroll: true });
@@ -131,6 +137,63 @@ let tipHideTimer, focusFeatureAfterRender = null;
     for (const node of columnCells.get(currentColumn) || []) node.classList.remove('column-highlight');
     currentColumn = id;
     for (const node of columnCells.get(currentColumn) || []) node.classList.add('column-highlight');
+  }
+  function syncHighlight(reveal = false) {
+    const selected = data.features.find(f => f.key === highlightedFeature);
+    const visible = selected && columnCells.has(selected.id) && view.length > 0;
+    for (const [id, nodes] of columnCells) for (const node of nodes) node.classList.toggle('column-selected', id === selected?.id);
+    const chip = $('highlight-chip');
+    chip.hidden = !selected;
+    chip.dataset.hidden = String(!visible);
+    if (selected) {
+      chip.textContent = `Highlight: ${selected.name}${visible ? '' : ' (hidden)'} ×`;
+      chip.setAttribute('aria-label', 'Clear highlight for ' + selected.name);
+    }
+    const button = $('tooltip').querySelector('.highlight-button');
+    if (button) {
+      const active = button.dataset.featureKey === highlightedFeature;
+      button.setAttribute('aria-pressed', String(active));
+      button.textContent = active ? 'Clear highlight' : 'Highlight column';
+    }
+    revealHighlightPending = !!selected && (revealHighlightPending || reveal || !visible);
+    if (revealHighlightPending) requestAnimationFrame(revealHighlightedColumn);
+  }
+  function revealHighlightedColumn() {
+    if (!revealHighlightPending || $('results').hidden) return;
+    const selected = data.features.find(f => f.key === highlightedFeature);
+    const header = selected && $('feature-' + selected.id);
+    if (!header || !view.length) return;
+    const region = $('matrix-region'), rect = header.getBoundingClientRect();
+    const left = $('matrix-head').querySelector('.fixed-score').getBoundingClientRect().right;
+    const right = region.getBoundingClientRect().left + region.clientLeft + region.clientWidth;
+    const delta = rect.left < left ? rect.left - left : rect.right > right ? rect.right - right : 0;
+    if (delta) {
+      if ($('tooltip').contains(document.activeElement)) closeTipAndRestoreFocus();
+      region.scrollLeft += delta;
+    }
+    revealHighlightPending = false;
+  }
+  function setHighlight(key) {
+    highlightedFeature = key;
+    // A pending title edit belongs to its debounce; highlighting does not submit it.
+    writeURL(parseQuery(location.search, data.features, data.tags), 'push');
+    syncHighlight(true);
+  }
+  function updateMatrixLayout() {
+    if ($('results').hidden) return;
+    const region = $('matrix-region');
+    $('matrix').style.setProperty('--matrix-width', region.clientWidth + 'px');
+    const rect = region.getBoundingClientRect();
+    const below = document.querySelector('main').getBoundingClientRect().bottom - rect.bottom;
+    // Document coordinates keep page scrolling from changing the table's height.
+    const available = innerHeight - (rect.top + scrollY) - below;
+    const height = Math.max(parseFloat(getComputedStyle(region).minHeight), Math.floor(available)) + 'px';
+    if (region.style.getPropertyValue('--matrix-height') !== height) region.style.setProperty('--matrix-height', height);
+    if (revealHighlightPending) requestAnimationFrame(revealHighlightedColumn);
+  }
+  function scheduleMatrixLayout() {
+    cancelAnimationFrame(layoutFrame);
+    layoutFrame = requestAnimationFrame(updateMatrixLayout);
   }
   function hideTip() {
     clearTimeout(tipHideTimer);
@@ -154,7 +217,10 @@ let tipHideTimer, focusFeatureAfterRender = null;
     if (anchor.dataset.tip === 'feature') {
       const f = features.get(id), weight = f.weight ?? 1; tip.append(element('p', 'tip-kicker', f.group), element('h3', '', f.name), element('p', '', f.description), element('p', 'tip-weight', `${weight < 0 ? '−' + Math.abs(weight) : weight} score ${Math.abs(weight) === 1 ? 'point' : 'points'}${weight === 0 ? ' · Included in raw count only' : ''}`), element('p', 'tip-fine', `${view.filter(g => g.featureSet.has(id)).length} of ${view.length} displayed games advertise this feature.`)); tip.setAttribute('aria-label', f.name);
       const controls = element('div', 'tip-actions');
-      controls.append(element('span', '', 'Filter games'), featureActions(f, true)); tip.append(controls);
+      const highlight = element('button', 'highlight-button', f.key === highlightedFeature ? 'Clear highlight' : 'Highlight column');
+      highlight.type = 'button'; highlight.dataset.featureKey = f.key; highlight.setAttribute('aria-pressed', String(f.key === highlightedFeature));
+      highlight.addEventListener('click', () => setHighlight(f.key === highlightedFeature ? null : f.key));
+      controls.append(highlight, featureActions(f, true)); tip.append(controls);
     } else {
       const g = games.get(id); if (!g) { hideTip(); return; }
       tip.append(element('p', 'tip-kicker', (g.earlyAccess ? 'Early Access · ' : '') + g.releaseStatus), element('h3', '', g.name)); tip.setAttribute('aria-label', g.name + ' details');
@@ -177,14 +243,22 @@ let tipHideTimer, focusFeatureAfterRender = null;
     else if (!interactive) anchor.setAttribute('aria-describedby', 'tooltip');
     if (interactive) { anchor.setAttribute('aria-haspopup', 'dialog'); anchor.setAttribute('aria-controls', 'tooltip'); anchor.setAttribute('aria-expanded', 'true'); }
     const r = anchor.getBoundingClientRect(), t = tip.getBoundingClientRect();
-    const left = Math.max(12, Math.min(r.left + r.width / 2 - t.width / 2, innerWidth - t.width - 12));
+    let left = Math.max(12, Math.min(r.left + r.width / 2 - t.width / 2, innerWidth - t.width - 12));
     let top = r.bottom + 9; if (top + t.height > innerHeight - 12) top = Math.max(12, r.top - t.height - 9);
+    if (anchor.dataset.tip === 'game') {
+      const beside = $('matrix-head').querySelector('.fixed-score').getBoundingClientRect().right + 8;
+      if (beside + t.width <= innerWidth - 12) {
+        left = beside;
+        top = Math.max(12, Math.min(anchor.closest('tr').getBoundingClientRect().top, innerHeight - t.height - 12));
+      }
+    }
     tip.style.left = left + 'px'; tip.style.top = top + 'px';
     if (pinned) { tip.tabIndex = -1; tip.focus({ preventScroll: true }); }
   }
 
 
 function showError(message, loading = false) {
+  hideTip();
   $('error-message').textContent = message;
   $('error').hidden = false;
   $('retry').hidden = !loading;
@@ -194,7 +268,7 @@ function showError(message, loading = false) {
   $('results').removeAttribute('aria-busy');
 }
 function startWorker() {
-  worker?.terminate(); ready = false;
+  worker?.terminate(); ready = false; requestedSearch = null;
   $('query-controls').disabled = true;
   $('error').hidden = true; $('loading').hidden = false; $('results').hidden = true;
   $('loading-message').textContent = 'Loading the complete game catalog…';
@@ -215,24 +289,38 @@ function startWorker() {
     if (message.type === 'result' && message.requestId === latestRequest) {
       latestResult = message.result;
       state = latestResult.query;
-      history.replaceState(null, '', location.pathname + serializeQuery(state, data.features, data.tags) + location.hash);
+      requestedSearch = serializeQuery(state, data.features, data.tags);
+      writeURL(state);
       syncControls(); render();
       $('error').hidden = true; $('loading').hidden = true; $('results').hidden = false; $('results').removeAttribute('aria-busy');
+      updateMatrixLayout();
     }
   });
   worker.postMessage({ type: 'init', manifestURL: new URL('./data/manifest.json', location.href).href });
 }
 
+function writeURL(query, mode = 'replace') {
+  const search = serializeView(query, highlightedFeature, data.features, data.tags);
+  if (search !== location.search) history[mode === 'push' ? 'pushState' : 'replaceState'](null, '', location.pathname + search + location.hash);
+}
 function loadURL() {
   clearTimeout(inputTimer);
-  latestRequest = ++requestId;
-  try { state = parseQuery(location.search, data.features, data.tags); syncControls(); query(); }
-  catch (error) { showError('This link has invalid filters: ' + error.message); }
+  try {
+    const next = parseView(location.search, data.features, data.tags);
+    const sameQuery = requestedSearch === serializeQuery(next.query, data.features, data.tags) && activeQueryRequest === latestRequest && $('error').hidden;
+    const highlightChanged = highlightedFeature !== next.highlight;
+    state = next.query; highlightedFeature = next.highlight;
+    hideTip(); syncControls(); syncHighlight(highlightChanged);
+    if (sameQuery) writeURL(state);
+    else query();
+  } catch (error) { latestRequest = ++requestId; showError('This link has invalid filters: ' + error.message); }
 }
 function query() {
   hideTip(); $('error').hidden = true;
   $('results').setAttribute('aria-busy', 'true');
   latestRequest = ++requestId;
+  activeQueryRequest = latestRequest;
+  requestedSearch = serializeQuery(state, data.features, data.tags);
   worker.postMessage({ type: 'query', requestId: latestRequest, query: state });
 }
 function setFilters(patch, resetPage = true) {
@@ -240,8 +328,7 @@ function setFilters(patch, resetPage = true) {
   clearTimeout(inputTimer);
   try {
     const next = normalizeQuery({ ...state, ...patch, ...(resetPage && !('page' in patch) ? { page: 1 } : {}) }, data.features, data.tags);
-    const search = serializeQuery(next, data.features, data.tags);
-    if (search !== location.search) history.pushState(null, '', location.pathname + search + location.hash);
+    writeURL(next, 'push');
     state = next; syncControls(); query();
   } catch (error) { showError(error.message); }
 }
@@ -353,7 +440,7 @@ function updateMetadata() {
   $('method-dates').textContent = `Updated ${date(data.importedAt)}. Individual games may have older data.${compression ? ` Data file: ${compression}${fileSize}.` : ''}`;
 }
 
-function getView() { return { filters: state, matching, displayed: view.length, featureColumns: visibleFeatures.length, maxScore: latestResult?.maxScore, page: latestResult?.page, pageCount: latestResult?.pageCount, games: view.map(({ id, name, score, count, rank, reviews, positivePercent, earlyAccess, tagIds }) => ({ id, name, score, count, rank, reviews, positivePercent, earlyAccess, tags: (tagIds ?? []).map(id => data.tags[id]) })) }; }
+function getView() { return { filters: state, highlight: highlightedFeature, matching, displayed: view.length, featureColumns: visibleFeatures.length, maxScore: latestResult?.maxScore, page: latestResult?.page, pageCount: latestResult?.pageCount, games: view.map(({ id, name, score, count, rank, reviews, positivePercent, earlyAccess, tagIds }) => ({ id, name, score, count, rank, reviews, positivePercent, earlyAccess, tags: (tagIds ?? []).map(id => data.tags[id]) })) }; }
 for (const preset of PRESETS) {
   const button = element('button', 'view-button'); button.append(icon(preset.id === 'feature-leaders' ? 'trophy' : 'warning'), element('span', '', preset.title)); button.type = 'button'; button.disabled = true; button.dataset.preset = preset.id; button.title = preset.description;
   button.addEventListener('click', () => setFilters(preset.query)); $('presets').append(button);
@@ -372,6 +459,7 @@ $('tag-search').addEventListener('input', filterTagOptions);
 for (const kind of ['feature', 'tag']) $(kind + '-toggle').addEventListener('click', () => togglePicker(kind));
 for (const id of ['reset', 'empty-reset', 'error-reset']) $(id).addEventListener('click', () => setFilters(DEFAULT_QUERY));
 $('retry').addEventListener('click', startWorker);
+$('highlight-chip').addEventListener('click', () => setHighlight(null));
 $('previous').addEventListener('click', () => setFilters({ page: state.page - 1 }, false));
 $('next').addEventListener('click', () => setFilters({ page: state.page + 1 }, false));
 function goToPage() { if ($('page').reportValidity()) setFilters({ page: Number($('page').value) }, false); }
@@ -397,7 +485,7 @@ $('about-dialog').addEventListener('click', e => {
   if (e.clientX < rect.left || e.clientX > rect.right || e.clientY < rect.top || e.clientY > rect.bottom) e.currentTarget.close();
 });
 $('share').addEventListener('click', async () => {
-  if (ready && $('search').value !== new URLSearchParams(location.search).get('q')) setFilters({ q: $('search').value }, false);
+  if (ready && $('search').value !== (new URLSearchParams(location.search).get('q') ?? '')) setFilters({ q: $('search').value }, false);
   try { await navigator.clipboard.writeText(location.href); $('share-status').textContent = 'Link copied'; $('share-label').textContent = 'Copied!'; setTimeout(() => { $('share-label').textContent = 'Copy link'; }, 1800); }
   catch { $('share-status').textContent = 'Copy the address from your browser to share this view.'; $('share-label').textContent = 'Copy address bar URL'; }
 });
@@ -406,7 +494,7 @@ window.addEventListener('popstate', () => { if (ready) loadURL(); });
   $('matrix').addEventListener('pointerout', e => { const anchor = e.target.closest('[data-tip]'); if (anchor && !anchor.contains(e.relatedTarget) && !$('tooltip').contains(e.relatedTarget)) scheduleTipHide(); });
   $('matrix').addEventListener('pointerleave', e => { highlightColumn(null); if (!$('tooltip').contains(e.relatedTarget)) scheduleTipHide(); });
   $('matrix').addEventListener('focusin', e => { const anchor = e.target.closest('[data-tip]'); if (anchor && !suppressFocusTip) showTip(anchor); const cell = e.target.closest('[data-feature]'); highlightColumn(cell ? Number(cell.dataset.feature) : null); });
-  $('matrix').addEventListener('focusout', e => { if (!$('tooltip').contains(e.relatedTarget)) scheduleTipHide(); });
+  $('matrix').addEventListener('focusout', e => { if (!$('tooltip').contains(e.relatedTarget)) { highlightColumn(null); scheduleTipHide(); } });
   $('matrix').addEventListener('click', e => { const anchor = e.target.closest('button[data-tip]'); if (anchor) showTip(anchor, true); });
   $('tooltip').addEventListener('pointerenter', () => clearTimeout(tipHideTimer));
   $('tooltip').addEventListener('pointerleave', e => { if (!tipAnchor?.contains(e.relatedTarget)) scheduleTipHide(); });
@@ -415,7 +503,10 @@ window.addEventListener('popstate', () => { if (ready) loadURL(); });
   document.addEventListener('pointerdown', e => { if (tipAnchor && !tipAnchor.contains(e.target) && !$('tooltip').contains(e.target)) hideTip(); });
   document.addEventListener('keydown', e => { if (e.key === 'Escape') closeTipAndRestoreFocus(); });
   $('matrix-region').addEventListener('scroll', hideTip, { passive: true });
-  window.addEventListener('resize', hideTip);
+  window.addEventListener('resize', () => { hideTip(); scheduleMatrixLayout(); });
+  const layoutObserver = new ResizeObserver(scheduleMatrixLayout);
+  layoutObserver.observe($('matrix-region'));
+  layoutObserver.observe(document.querySelector('main'));
 
 window.steamFeatureAtlas = Object.freeze({ getView, setFilters });
 startWorker();

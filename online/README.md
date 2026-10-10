@@ -109,6 +109,8 @@ Bulk revisions, asset identifiers and checksums are recorded in the manifest. Th
 
 Unknown values remain distinct from zero, empty lists and absent features. Feature and tag filters require known data, including exclusions. [`normalize.mjs`](scripts/normalize.mjs) defines source normalization; [`features.mjs`](src/features.mjs) defines feature aliases, groups and weights; [`query.mjs`](src/query.mjs) defines filters, URL state, sorting and presets.
 
+[`view-state.mjs`](src/view-state.mjs) adds the optional `highlight=<feature-key>` URL parameter. Highlighting selects one column without changing the query, including when a counting toggle hides that column.
+
 Publication requires at least 50,000 games, 70% known feature data and 30% known reviews. A drop of more than 10% in games, known features, known reviews or known tags against the published catalog blocks the build. Unclassified Steam category IDs also block publication until the feature registry is updated.
 
 ### Published files
