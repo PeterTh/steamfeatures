@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "importedAt": "2026-10-10T10:37:27.499Z",
+  "importedAt": "2026-10-10T12:17:09.344Z",
   "fixture": false,
   "sources": {
     "apps": {
@@ -28,7 +28,7 @@
       "country": "US",
       "language": "english",
       "reviews": "All-language Steam-purchase reviews",
-      "refreshedAt": "2026-10-10T10:37:27.499Z"
+      "refreshedAt": "2026-10-10T12:17:09.344Z"
     }
   },
   "coverage": {
@@ -47,27 +47,27 @@
     "sourceShards": 1764
   },
   "catalog": {
-    "catalog": "catalog.9fb97ee7b4de6c51.json",
-    "compressedCatalog": "catalog.9fb97ee7b4de6c51.json.gz",
-    "sha256": "9fb97ee7b4de6c51f310a1235b9fc3f2bfe0b073c027c71662638907bdc41165",
-    "gzipSha256": "17793aea6f391073126ff2d636c748595701a8d79999b7c3a6aef8b5f635d662",
-    "bytes": 71631491,
-    "gzipBytes": 8340774,
-    "importedAt": "2026-10-10T10:37:27.499Z",
+    "catalog": "catalog.72359f947471937e.json",
+    "compressedCatalog": "catalog.72359f947471937e.json.gz",
+    "sha256": "72359f947471937e841cc9a0552e1a2f5d77461d26132eb04a2b20c0658d45c4",
+    "gzipSha256": "23dddc7592f3f1cfd3b18fe0e16904b532735873c78435e36ee74c1a4e74cb4e",
+    "bytes": 71631484,
+    "gzipBytes": 8340782,
+    "importedAt": "2026-10-10T12:17:09.344Z",
     "binary": {
       "format": "steam-feature-atlas-binary-v1",
-      "file": "catalog.aceb2d1c72c6cba7.bin",
-      "sha256": "aceb2d1c72c6cba752df9e68ed202fdcf212df7172775d69705dc8c640e97505",
-      "bytes": 11430046,
+      "file": "catalog.b045b1383539f4ed.bin",
+      "sha256": "b045b1383539f4edb7659bd133ddbdf3e44a83d4b2a663aba6457a236aaaa80b",
+      "bytes": 11430039,
       "gzip": {
-        "file": "catalog.aceb2d1c72c6cba7.bin.gz",
-        "sha256": "f5c06af1bd26a3c67e7d82da102d8723852367092877ace19833e3226de1b440",
-        "bytes": 5168418
+        "file": "catalog.b045b1383539f4ed.bin.gz",
+        "sha256": "18834b2e16d090fbfa39a75b364dcf572fb44514c5bd54c860eeb772ed802e0b",
+        "bytes": 5168397
       },
       "brotli": {
-        "file": "catalog.aceb2d1c72c6cba7.bin.br",
-        "sha256": "bcb1f720c5e995ad3d9972517543a5d39b3e17c5bf638a4b895bc5c79366ef76",
-        "bytes": 4366018
+        "file": "catalog.b045b1383539f4ed.bin.br",
+        "sha256": "3aa0601dd0ba390f3bf465110019b0a42ebcc427aa67c40ef20264252ac24550",
+        "bytes": 4369184
       }
     }
   },
@@ -79,20 +79,20 @@
   "refresh": {
     "enabled": true,
     "existingLimit": 4000,
-    "lastRunAt": "2026-10-10T10:37:27.499Z",
+    "lastRunAt": "2026-10-10T12:17:09.344Z",
     "bootstrapComplete": true,
     "checkedGames": 135228,
-    "discovered": 1518,
-    "refreshed": 4000,
+    "discovered": 0,
+    "refreshed": 0,
     "failures": 0,
-    "requests": 43,
+    "requests": 1,
     "unresolvedReleased": 0,
     "deniedReleased": 2120
   },
   "steamArchive": {
-    "file": "steam-raw.897b7af7e4743b57.json.gz",
-    "sha256": "897b7af7e4743b57ec58dbbf85a153aeac527b25a7ada12375713b255b394805",
-    "bytes": 14278489,
+    "file": "steam-raw.600f04dd07b82c50.json.gz",
+    "sha256": "600f04dd07b82c50d01b4ede0cea1971b461e05be9b8eccb78c2e6f00196bc76",
+    "bytes": 14278506,
     "apps": 53278,
     "successfulApps": 51158
   }
