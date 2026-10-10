@@ -1,8 +1,7 @@
 // Storefront protobufs: https://github.com/SteamTracking/Protobufs/tree/master/webui
 // These anonymous storefront methods are not a documented, stable public API.
-// Live validation, 2026-10-09: GetItems accepts 100 IDs; Query accepts 1,000
-// results; release_date_type=1 constrains steam_release_date. Omitting that
-// enum silently disables the date window. No undocumented sort enum is used.
+// Requests use at most 100 IDs for GetItems and 1,000 results for Query.
+// Query requires release_date_type=1 to apply the steam_release_date window.
 export const STEAM_CONTEXT = Object.freeze({ language: 'english', country_code: 'US' });
 export const STEAM_DATA_REQUEST = Object.freeze({
   include_release: true,

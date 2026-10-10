@@ -5,6 +5,7 @@ import { resolve } from 'node:path';
 import { gunzipSync } from 'node:zlib';
 import { validateRefreshState } from './refresh-state.mjs';
 import { validateSteamArchiveSnapshot } from './steam-archive-snapshot.mjs';
+import { validateBinaryDescriptor, BINARY_MAX_BYTES, COMPRESSED_MAX_BYTES } from '../src/catalog-descriptor.mjs';
 
 export const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -82,6 +83,7 @@ export function validateCatalogDescriptor(descriptor) {
     throw new Error('Untrusted prior catalog paths');
   }
   for (const key of ['sha256', 'gzipSha256']) if (!/^[a-f0-9]{64}$/.test(descriptor[key])) throw new Error('Invalid prior catalog checksum');
+  if (descriptor.binary !== undefined) validateBinaryDescriptor(descriptor.binary);
   return descriptor;
 }
 
@@ -131,12 +133,21 @@ export async function readLocalSteamArchive(directory) {
 export async function retainPreviousCatalog(previous, directory, currentDescriptor) {
   if (!previous || previous.manifest.current.sha256 === currentDescriptor.sha256) return null;
   const descriptor = validateCatalogDescriptor(previous.manifest.current);
-  for (const [key, hash, maximumBytes] of [['catalog', descriptor.sha256, 150 * 1024 * 1024], ['compressedCatalog', descriptor.gzipSha256, 40 * 1024 * 1024]]) {
-    const targetURL = new URL(descriptor[key], previous.manifestURL);
+  const files = [
+    { file: descriptor.catalog, hash: descriptor.sha256, maximumBytes: 150 * 1024 * 1024 },
+    { file: descriptor.compressedCatalog, hash: descriptor.gzipSha256, maximumBytes: 40 * 1024 * 1024 },
+  ];
+  if (descriptor.binary) {
+    for (const [entry, maximumBytes] of [[descriptor.binary, BINARY_MAX_BYTES], [descriptor.binary.gzip, COMPRESSED_MAX_BYTES], [descriptor.binary.brotli, COMPRESSED_MAX_BYTES]]) {
+      files.push({ file: entry.file, hash: entry.sha256, size: entry.bytes, maximumBytes });
+    }
+  }
+  for (const { file, hash, size, maximumBytes } of files) {
+    const targetURL = new URL(file, previous.manifestURL);
     if (targetURL.origin !== previous.manifestURL.origin || !targetURL.pathname.startsWith(new URL('.', previous.manifestURL).pathname)) throw new Error('Prior catalog escaped its origin');
     const bytes = await download(targetURL, { maximumBytes });
-    if (sha256(bytes) !== hash) throw new Error('Previous catalog checksum mismatch');
-    await writeFile(resolve(directory, descriptor[key]), bytes);
+    if (sha256(bytes) !== hash || (size !== undefined && bytes.length !== size)) throw new Error('Previous catalog checksum or size mismatch');
+    await writeFile(resolve(directory, file), bytes);
   }
   return descriptor;
 }

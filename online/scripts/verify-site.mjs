@@ -1,8 +1,11 @@
 import { readFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { gunzipSync } from 'node:zlib';
+import { isDeepStrictEqual } from 'node:util';
+import { brotliDecompressSync, gunzipSync } from 'node:zlib';
 import { prepareCatalog } from '../src/query.mjs';
+import { decodeBinaryCatalog } from '../src/catalog-binary.mjs';
+import { BINARY_MAX_BYTES, COMPRESSED_MAX_BYTES } from '../src/catalog-descriptor.mjs';
 import { validateRefreshState } from './refresh-state.mjs';
 import { validateSteamArchiveSnapshot } from './steam-archive-snapshot.mjs';
 import { readPreviousManifest, readPreviousRefreshState, sha256, validateCatalogDescriptor } from './sources.mjs';
@@ -33,7 +36,39 @@ async function catalogBytes(directory, descriptor) {
   const bytes = await checkedFile(directory, descriptor.catalog, descriptor.sha256, descriptor.bytes, 150 * 1024 * 1024);
   const compressed = await checkedFile(directory, descriptor.compressedCatalog, descriptor.gzipSha256, descriptor.gzipBytes, 40 * 1024 * 1024);
   if (!gunzipSync(compressed, { maxOutputLength: 150 * 1024 * 1024 }).equals(bytes)) throw new Error('Compressed catalog does not match the JSON catalog.');
+  if (descriptor.binary) await verifyBinaryCatalog(directory, descriptor.binary, JSON.parse(bytes));
   return bytes;
+}
+
+function semanticMetadata(catalog) {
+  const { games, tagIndex, features, tags = [], ...metadata } = catalog;
+  return { ...metadata, features: [...features].sort((a, b) => a.id - b.id), tags: [...tags].sort() };
+}
+
+function semanticGame(game, tags) {
+  const { tagIds, featureIds, ...fields } = game;
+  return { ...fields, featureIds: [...featureIds].sort((a, b) => a - b), tags: tagIds.map(id => tags[id]).sort() };
+}
+
+async function verifyBinaryCatalog(directory, descriptor, jsonCatalog) {
+  const bytes = await checkedFile(directory, descriptor.file, descriptor.sha256, descriptor.bytes, BINARY_MAX_BYTES);
+  for (const [compression, decompress] of [['gzip', gunzipSync], ['brotli', brotliDecompressSync]]) {
+    const packed = descriptor[compression];
+    const compressed = await checkedFile(directory, packed.file, packed.sha256, packed.bytes, COMPRESSED_MAX_BYTES);
+    if (!decompress(compressed, { maxOutputLength: BINARY_MAX_BYTES }).equals(bytes)) throw new Error(`Compressed ${compression} binary catalog does not match the raw binary catalog.`);
+  }
+  const binaryCatalog = decodeBinaryCatalog(bytes);
+  if (!isDeepStrictEqual(semanticMetadata(binaryCatalog), semanticMetadata(jsonCatalog))) throw new Error('Binary catalog metadata does not match the JSON catalog.');
+  const expected = prepareCatalog(jsonCatalog);
+  const actual = prepareCatalog(binaryCatalog);
+  if (actual.games.length !== expected.games.length) throw new Error('Binary catalog game count does not match the JSON catalog.');
+  const byId = new Map(actual.games.map(row => [row.game.id, row.game]));
+  for (const { game } of expected.games) {
+    const binaryGame = byId.get(game.id);
+    if (!binaryGame || !isDeepStrictEqual(semanticGame(game, expected.tags), semanticGame(binaryGame, actual.tags))) {
+      throw new Error(`Binary catalog game ${game.id} does not match the JSON catalog.`);
+    }
+  }
 }
 
 async function auxiliary(directory, descriptor, prefix, maximumBytes, expandedBytes) {
@@ -61,12 +96,16 @@ export async function verifySite(directory = resolve(ROOT, 'dist'), { minimumGam
   const archive = validateSteamArchiveSnapshot(await auxiliary(data, manifest.steamArchive, 'steam-raw', 150 * 1024 * 1024, 1024 * 1024 * 1024));
   if (Object.keys(archive.apps).length !== manifest.steamArchive.apps) throw new Error('Steam raw archive app count does not match its manifest.');
   const provenance = JSON.parse(await readFile(resolve(site, 'provenance-lock.json'), 'utf8'));
-  if (provenance.catalog?.sha256 !== manifest.current.sha256 || provenance.refreshState?.sha256 !== manifest.refreshState.sha256 || provenance.steamArchive?.sha256 !== manifest.steamArchive.sha256) {
+  if (provenance.catalog?.sha256 !== manifest.current.sha256 || !isDeepStrictEqual(provenance.catalog?.binary, manifest.current.binary) || provenance.refreshState?.sha256 !== manifest.refreshState.sha256 || provenance.steamArchive?.sha256 !== manifest.steamArchive.sha256) {
     throw new Error('Provenance lock does not match the manifest.');
   }
   for (const name of ['index.html', 'app.js', 'style.css', 'query.mjs', 'features.mjs', 'filter-worker.js', 'brand.svg', '.nojekyll',
     'fonts/roboto-condensed-variable.woff', 'fonts/LICENSE.txt', 'fonts/NOTICE.txt', 'licenses/BlueBoxWare-MIT.txt', 'licenses/leinstay-GPL-3.0.txt', 'licenses/NOTICE.txt']) {
     await readFile(resolve(site, name));
+  }
+  if (manifest.current.binary || manifest.previous?.binary) {
+    await readFile(resolve(site, 'catalog-binary.mjs'));
+    await readFile(resolve(site, 'catalog-descriptor.mjs'));
   }
   return { games: catalog.games.length, stateApps: Object.keys(state.apps).length, rawApps: Object.keys(archive.apps).length, catalogSha256: manifest.current.sha256 };
 }

@@ -3,8 +3,25 @@ import assert from 'node:assert/strict';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { gzipSync } from 'node:zlib';
-import { readPreviousManifest, retainPreviousCatalog, sha256 } from '../scripts/sources.mjs';
+import { brotliCompressSync, gzipSync } from 'node:zlib';
+import { readPreviousManifest, retainPreviousCatalog, sha256, validateCatalogDescriptor } from '../scripts/sources.mjs';
+
+function binaryPrevious() {
+  const plain = Buffer.from('{"previous":true}');
+  const compressed = gzipSync(plain);
+  const raw = Buffer.from('Example binary catalog payload');
+  const gzip = gzipSync(raw);
+  const brotli = brotliCompressSync(raw);
+  const basename = `catalog.${sha256(raw).slice(0, 16)}.bin`;
+  const binary = { format: 'steam-feature-atlas-binary-v1', file: basename, sha256: sha256(raw), bytes: raw.length,
+    gzip: { file: `${basename}.gz`, sha256: sha256(gzip), bytes: gzip.length },
+    brotli: { file: `${basename}.br`, sha256: sha256(brotli), bytes: brotli.length } };
+  const descriptor = { catalog: `catalog.${sha256(plain).slice(0, 16)}.json`, compressedCatalog: `catalog.${sha256(plain).slice(0, 16)}.json.gz`,
+    sha256: sha256(plain), gzipSha256: sha256(compressed), binary };
+  const files = new Map([[descriptor.catalog, plain], [descriptor.compressedCatalog, compressed],
+    [binary.file, raw], [binary.gzip.file, gzip], [binary.brotli.file, brotli]]);
+  return { descriptor, files };
+}
 
 test('retain exactly the live predecessor, verify hashes and honor project subpaths', async () => {
   const originalFetch = globalThis.fetch;
@@ -36,4 +53,55 @@ test('first deployment accepts 404 but invalid paths in a prior manifest fail cl
     globalThis.fetch = async () => new Response(JSON.stringify({ version: 1, current: { catalog: '../escape.json' } }));
     await assert.rejects(readPreviousManifest('https://peterth.github.io/steamfeatures/'), /Untrusted/);
   } finally { globalThis.fetch = originalFetch; }
+});
+
+test('retention carries every checked binary variant alongside the JSON predecessor', async t => {
+  const originalFetch = globalThis.fetch;
+  const directory = await mkdtemp(join(tmpdir(), 'steam-atlas-retain-binary-'));
+  t.after(async () => { globalThis.fetch = originalFetch; await rm(directory, { recursive: true, force: true }); });
+  const { descriptor, files } = binaryPrevious();
+  const urls = [];
+  globalThis.fetch = async url => {
+    urls.push(String(url));
+    return new Response(files.get(new URL(url).pathname.split('/').at(-1)));
+  };
+  const previous = { manifest: { current: descriptor }, manifestURL: new URL('https://example.github.io/steamfeatures/data/manifest.json') };
+  assert.deepEqual(await retainPreviousCatalog(previous, directory, { sha256: 'd'.repeat(64) }), descriptor);
+  assert.equal(urls.length, 5);
+  assert.ok(urls.every(url => url.startsWith('https://example.github.io/steamfeatures/data/')));
+  for (const [file, bytes] of files) assert.deepEqual(await readFile(join(directory, file)), bytes);
+  assert.equal(await retainPreviousCatalog(previous, directory, descriptor), null);
+  assert.equal(urls.length, 5);
+});
+
+for (const variant of ['raw', 'gzip', 'brotli']) {
+  test(`retention rejects corrupt ${variant} binary bytes`, async t => {
+    const originalFetch = globalThis.fetch;
+    const directory = await mkdtemp(join(tmpdir(), 'steam-atlas-retain-corrupt-'));
+    t.after(async () => { globalThis.fetch = originalFetch; await rm(directory, { recursive: true, force: true }); });
+    const { descriptor, files } = binaryPrevious();
+    const entry = variant === 'raw' ? descriptor.binary : descriptor.binary[variant];
+    files.set(entry.file, Buffer.from('corrupt'));
+    globalThis.fetch = async url => new Response(files.get(new URL(url).pathname.split('/').at(-1)));
+    await assert.rejects(retainPreviousCatalog({ manifest: { current: descriptor }, manifestURL: new URL('https://example.test/data/manifest.json') }, directory, { sha256: 'd'.repeat(64) }), /checksum or size mismatch/);
+  });
+}
+
+test('binary descriptors reject unsupported formats, unpinned or escaped paths, and invalid sizes', () => {
+  const mutations = [
+    descriptor => { descriptor.binary.format = 'unknown'; },
+    descriptor => { descriptor.binary.file = '../catalog.0123456789abcdef.bin'; },
+    descriptor => { descriptor.binary.sha256 = 'd'.repeat(64); },
+    descriptor => { descriptor.binary.bytes = 0; },
+    descriptor => { descriptor.binary.bytes = 151 * 1024 * 1024; },
+    descriptor => { descriptor.binary.gzip.file = 'https://other.example/data.bin.gz'; },
+    descriptor => { descriptor.binary.gzip.bytes = 1.5; },
+    descriptor => { descriptor.binary.brotli.sha256 = 'bogus'; },
+    descriptor => { delete descriptor.binary.brotli; },
+  ];
+  for (const mutate of mutations) {
+    const { descriptor } = binaryPrevious();
+    mutate(descriptor);
+    assert.throws(() => validateCatalogDescriptor(descriptor));
+  }
 });

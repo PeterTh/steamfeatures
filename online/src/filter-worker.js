@@ -1,4 +1,8 @@
 import { prepareCatalog, runQuery } from './query.mjs';
+import { decodeBinaryCatalog } from './catalog-binary.mjs';
+import { validateBinaryDescriptor, BINARY_MAX_BYTES, COMPRESSED_MAX_BYTES } from './catalog-descriptor.mjs';
+
+const MANIFEST_MAX_BYTES = 2 * 1024 * 1024;
 
 function sameOriginURL(path, base, origin) {
   const url = new URL(path, base);
@@ -8,21 +12,151 @@ function sameOriginURL(path, base, origin) {
   return url;
 }
 
+function catalogURL(path, manifestAddress, origin) {
+  const url = sameOriginURL(path, manifestAddress, origin);
+  const directory = new URL('.', manifestAddress).pathname;
+  if (!url.pathname.startsWith(directory) || url.search || url.hash || /%2f|%5c|%2e/i.test(url.pathname)) {
+    throw new Error('Catalog files must stay inside the website data directory.');
+  }
+  return url;
+}
+
+function expectedSize(value, maximum, label) {
+  if (!Number.isSafeInteger(value) || value < 1 || value > maximum) throw new Error(`Invalid ${label} size in the manifest.`);
+  return value;
+}
+
+/** Bound streamed downloads and decompression before either can allocate an oversized payload. */
+async function readBytes(stream, size, maximum, label) {
+  if (!stream) throw new Error(`The ${label} response has no body.`);
+  const reader = stream.getReader();
+  const limit = size ?? maximum;
+  const output = size === undefined ? null : new Uint8Array(size);
+  const chunks = [];
+  let length = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (value.byteLength > limit - length) throw new Error(`The ${label} size does not match its manifest or exceeds its limit.`);
+      if (output) output.set(value, length);
+      else chunks.push(value);
+      length += value.byteLength;
+    }
+    if (size !== undefined && length !== size) throw new Error(`The ${label} size does not match its manifest.`);
+  } catch (error) {
+    await reader.cancel().catch(() => {});
+    throw error;
+  } finally {
+    reader.releaseLock();
+  }
+  if (output) return output;
+  const joined = new Uint8Array(length);
+  let offset = 0;
+  for (const chunk of chunks) { joined.set(chunk, offset); offset += chunk.byteLength; }
+  return joined;
+}
+
 async function digest(bytes, expected, cryptoImpl, label) {
-  if (typeof expected !== 'string' || !/^[a-f0-9]{64}$/i.test(expected)) throw new Error(`Missing or invalid ${label} checksum.`);
+  if (typeof expected !== 'string' || expected.length !== 64 || !/^[a-f0-9]{64}$/i.test(expected)) throw new Error(`Missing or invalid ${label} checksum.`);
   if (!cryptoImpl?.subtle) throw new Error('This browser cannot verify the catalog. Use HTTPS or a localhost preview.');
   const hash = await cryptoImpl.subtle.digest('SHA-256', bytes);
   const actual = [...new Uint8Array(hash)].map(value => value.toString(16).padStart(2, '0')).join('');
   if (actual !== expected.toLowerCase()) throw new Error(`The ${label} checksum does not match. Please retry the download.`);
 }
 
-async function fetchResponse(url, fetchImpl, cache) {
+async function fetchResponse(url, fetchImpl, cache, manifestAddress) {
   const response = await fetchImpl(url.href, {
     cache, credentials: 'same-origin', signal: AbortSignal.timeout(60000),
   });
   if (!response.ok) throw new Error(`Could not download ${url.pathname} (HTTP ${response.status}).`);
-  if (response.url && new URL(response.url).origin !== url.origin) throw new Error('Catalog download redirected to another origin.');
+  if (response.url) {
+    if (new URL(response.url).origin !== url.origin) throw new Error('Catalog download redirected to another origin.');
+    catalogURL(response.url, manifestAddress, url.origin);
+  }
   return response;
+}
+
+async function downloadBytes(url, descriptor, fetchImpl, cryptoImpl, manifestAddress, maximum, label) {
+  const response = await fetchResponse(url, fetchImpl, 'force-cache', manifestAddress);
+  const contentLength = response.headers.get('content-length');
+  if (contentLength !== null && /^\d+$/.test(contentLength) && Number(contentLength) > descriptor.bytes) {
+    await response.body?.cancel();
+    throw new Error(`The ${label} size does not match its manifest.`);
+  }
+  const bytes = await readBytes(response.body, descriptor.bytes, maximum, label);
+  await digest(bytes, descriptor.sha256, cryptoImpl, label);
+  return bytes;
+}
+
+function decompressor(DecompressionStreamImpl, format) {
+  if (typeof DecompressionStreamImpl !== 'function') return null;
+  try { return new DecompressionStreamImpl(format); }
+  catch { return null; }
+}
+
+async function binaryCatalog(descriptor, context) {
+  validateBinaryDescriptor(descriptor);
+  const { manifestAddress, expectedOrigin, fetchImpl, cryptoImpl, DecompressionStreamImpl } = context;
+  const errors = [];
+  // Probe support before fetching. Unsupported Brotli must not cost an extra request.
+  for (const [key, format] of [['brotli', 'brotli'], ['gzip', 'gzip'], [null, null]]) {
+    const stream = key ? decompressor(DecompressionStreamImpl, format) : null;
+    if (key && !stream) continue;
+    try {
+      const payload = key ? descriptor[key] : descriptor;
+      const url = catalogURL(payload.file, manifestAddress, expectedOrigin);
+      let bytes = await downloadBytes(url, payload, fetchImpl, cryptoImpl, manifestAddress,
+        key ? COMPRESSED_MAX_BYTES : BINARY_MAX_BYTES, key ? `${format} binary catalog` : 'binary catalog');
+      if (stream) {
+        bytes = await readBytes(new Blob([bytes]).stream().pipeThrough(stream), descriptor.bytes, BINARY_MAX_BYTES, 'binary catalog');
+        await digest(bytes, descriptor.sha256, cryptoImpl, 'binary catalog');
+      }
+      const catalog = decodeBinaryCatalog(bytes);
+      if (catalog?.version !== 1) throw new Error('This game catalog version is not supported.');
+      return { catalog, compression: format ?? 'uncompressed', bytes: payload.bytes };
+    } catch (error) {
+      errors.push(error instanceof Error ? error.message : String(error));
+    }
+  }
+  throw new Error(`The binary catalog and its fallbacks could not load. ${errors.join(' ')}`);
+}
+
+async function legacyCatalog(current, context) {
+  const { manifestAddress, expectedOrigin, fetchImpl, cryptoImpl, DecompressionStreamImpl } = context;
+  if (typeof current.catalog !== 'string' || !current.catalog) throw new Error('The manifest does not identify a catalog.');
+  const plainURL = catalogURL(current.catalog, manifestAddress, expectedOrigin);
+  expectedSize(current.bytes, BINARY_MAX_BYTES, 'catalog');
+  const gzipURL = current.compressedCatalog ? catalogURL(current.compressedCatalog, manifestAddress, expectedOrigin) : null;
+  if (gzipURL) expectedSize(current.gzipBytes, COMPRESSED_MAX_BYTES, 'compressed catalog');
+  let bytes;
+  let compression = 'uncompressed';
+  let compressedError;
+  const stream = gzipURL ? decompressor(DecompressionStreamImpl, 'gzip') : null;
+  if (stream) {
+    try {
+      const compressed = await downloadBytes(gzipURL, { bytes: current.gzipBytes, sha256: current.gzipSha256 },
+        fetchImpl, cryptoImpl, manifestAddress, COMPRESSED_MAX_BYTES, 'compressed catalog');
+      bytes = await readBytes(new Blob([compressed]).stream().pipeThrough(stream), current.bytes, BINARY_MAX_BYTES, 'catalog');
+      await digest(bytes, current.sha256, cryptoImpl, 'catalog');
+      compression = 'gzip';
+    } catch (error) {
+      compressedError = error;
+      bytes = undefined;
+    }
+  }
+  if (!bytes) {
+    try {
+      bytes = await downloadBytes(plainURL, current, fetchImpl, cryptoImpl, manifestAddress, BINARY_MAX_BYTES, 'catalog');
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      throw new Error(compressedError ? `The compressed and fallback catalogs could not load. ${detail}` : detail);
+    }
+  }
+  let catalog;
+  try { catalog = JSON.parse(new TextDecoder().decode(bytes)); }
+  catch { throw new Error('The downloaded catalog is not valid JSON.'); }
+  return { catalog, compression, bytes: compression === 'gzip' ? current.gzipBytes : current.bytes };
 }
 
 /** Download a pinned catalog, keeping both decompression and parsing off the UI thread. */
@@ -35,44 +169,19 @@ export async function loadCatalog(manifestURL, {
   const manifestAddress = new URL(manifestURL, globalThis.location?.href);
   const expectedOrigin = origin ?? manifestAddress.origin;
   sameOriginURL(manifestAddress, manifestAddress, expectedOrigin);
-  const response = await fetchResponse(manifestAddress, fetchImpl, 'no-cache');
-  const manifest = await response.json();
+  const response = await fetchResponse(manifestAddress, fetchImpl, 'no-cache', manifestAddress);
+  const manifestBytes = await readBytes(response.body, undefined, MANIFEST_MAX_BYTES, 'manifest');
+  let manifest;
+  try { manifest = JSON.parse(new TextDecoder().decode(manifestBytes)); }
+  catch { throw new Error('The catalog manifest is not valid JSON.'); }
   if (manifest?.version !== 1 || !manifest.current) throw new Error('This catalog manifest version is not supported.');
   const current = manifest.current;
-  if (typeof current.catalog !== 'string' || !current.catalog) throw new Error('The manifest does not identify a catalog.');
-  const plainURL = sameOriginURL(current.catalog, manifestAddress, expectedOrigin);
-  let bytes;
-  let compressedError;
-  if (current.compressedCatalog && typeof DecompressionStreamImpl === 'function') {
-    try {
-      const gzipURL = sameOriginURL(current.compressedCatalog, manifestAddress, expectedOrigin);
-      const gzipResponse = await fetchResponse(gzipURL, fetchImpl, 'force-cache');
-      const compressed = await gzipResponse.arrayBuffer();
-      await digest(compressed, current.gzipSha256, cryptoImpl, 'compressed catalog');
-      const stream = new Blob([compressed]).stream().pipeThrough(new DecompressionStreamImpl('gzip'));
-      bytes = await new Response(stream).arrayBuffer();
-      await digest(bytes, current.sha256, cryptoImpl, 'catalog');
-    } catch (error) {
-      compressedError = error;
-      bytes = undefined;
-    }
-  }
-  if (!bytes) {
-    try {
-      const plainResponse = await fetchResponse(plainURL, fetchImpl, 'force-cache');
-      bytes = await plainResponse.arrayBuffer();
-      await digest(bytes, current.sha256, cryptoImpl, 'catalog');
-    } catch (error) {
-      const detail = error instanceof Error ? error.message : String(error);
-      throw new Error(compressedError ? `The compressed and fallback catalogs could not load. ${detail}` : detail);
-    }
-  }
-  if (Number.isSafeInteger(current.bytes) && bytes.byteLength !== current.bytes) throw new Error('The catalog size does not match its manifest.');
-  let catalog;
-  try { catalog = JSON.parse(new TextDecoder().decode(bytes)); }
-  catch { throw new Error('The downloaded catalog is not valid JSON.'); }
+  const context = { manifestAddress, expectedOrigin, fetchImpl, cryptoImpl, DecompressionStreamImpl };
+  const { catalog, compression, bytes } = Object.hasOwn(current, 'binary')
+    ? await binaryCatalog(current.binary, context)
+    : await legacyCatalog(current, context);
   if (catalog?.version !== 1) throw new Error('This game catalog version is not supported.');
-  return { catalog, manifest };
+  return { catalog, manifest, compression, bytes };
 }
 
 let prepared = null;
@@ -103,6 +212,8 @@ if (typeof self !== 'undefined' && typeof self.addEventListener === 'function') 
           refresh: catalog.refresh ?? manifest?.refresh ?? null,
           fixture: catalog.fixture === true || manifest?.fixture === true,
           catalogHash: manifest?.current?.sha256 ?? null,
+          catalogCompression: loaded.compression ?? null,
+          catalogBytes: loaded.bytes ?? null,
         });
       } else if (message.type === 'query') {
         if (!prepared) throw new Error('The game catalog has not loaded yet.');

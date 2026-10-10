@@ -135,7 +135,7 @@ async (page, options = {}) => {
   check('Ys IX is present in the current catalog', Boolean(dataset.ys));
   await openExample(dataset.ys);
   const ys = (await view()).games.find(game => game.id === dataset.ys.id);
-  check('Ys IX now has reviews and community tags', ys.reviews > 0 && ys.tags.length > 0);
+  check('Ys IX has reviews and community tags', ys.reviews > 0 && ys.tags.length > 0);
   await page.locator(`tr[data-game-id="${dataset.ys.id}"] .info-button`).click();
   check('Successful Steam game details contain no denial note', !/Steam metadata unavailable/.test(await page.locator('#tooltip').innerText()) && /Steam-purchase reviews/.test(await page.locator('#tooltip').innerText()));
   await page.keyboard.press('Escape');

@@ -1,6 +1,6 @@
 import { readSteamResponseArchive } from './steam-archive.mjs';
 
-/** Recover result codes omitted by older checkpoints from their saved evidence.
+/** Fill missing checkpoint result codes from archived Steam responses.
  * Never infer a denial from an empty field, a missing response, or HTTP failure.
  * The caller supplies an already validated checkpoint; timestamps stay intact.
  */

@@ -160,8 +160,8 @@ let tipHideTimer, focusFeatureAfterRender = null;
       tip.append(element('p', 'tip-kicker', (g.earlyAccess ? 'Early Access · ' : '') + g.releaseStatus), element('h3', '', g.name)); tip.setAttribute('aria-label', g.name + ' details');
       const dl = element('dl'), non = data.features.filter(f => !f.accessibility), count = list => g.featureDataKnown ? list.filter(f => g.featureSet.has(f.id)).length + ' / ' + list.length : 'Unknown';
       addPair(dl, 'Feature score', g.score == null ? 'Unknown' : `${g.score} / ${latestResult.maxScore}`); addPair(dl, 'Visible feature count', count(visibleFeatures));
-      addPair(dl, 'Non-accessibility total', count(non)); addPair(dl, 'All retained features', count(data.features));
-      addPair(dl, g.reviewSource === 'steam' ? 'Steam-purchase reviews' : g.reviews != null && data.refresh?.enabled ? 'Reviews (bulk fallback)' : 'Reviews', fmt(g.reviews));
+      addPair(dl, 'Non-accessibility total', count(non)); addPair(dl, 'All features', count(data.features));
+      addPair(dl, g.reviewSource === 'steam' ? 'Steam-purchase reviews' : 'Reviews', fmt(g.reviews));
       if (g.positivePercent != null) addPair(dl, 'Positive reviews', g.positivePercent + '%');
       addPair(dl, 'Release date', g.releaseDate || 'Unknown');
       if (g.metadataUpdatedAt) addPair(dl, 'Steam metadata checked', date(g.metadataUpdatedAt));
@@ -348,7 +348,9 @@ function togglePicker(kind) {
 }
 function updateMetadata() {
   $('package-summary').textContent = `${fmt(data.gameCount)} games · ${data.features.length} feature labels`;
-  $('method-dates').textContent = `Updated ${date(data.importedAt)}. Individual games may have older data.`;
+  const compression = { brotli: 'Brotli', gzip: 'gzip', uncompressed: 'uncompressed' }[data.catalogCompression];
+  const fileSize = data.catalogBytes == null ? '' : ` (${(data.catalogBytes / 1_000_000).toFixed(2)} MB)`;
+  $('method-dates').textContent = `Updated ${date(data.importedAt)}. Individual games may have older data.${compression ? ` Data file: ${compression}${fileSize}.` : ''}`;
 }
 
 function getView() { return { filters: state, matching, displayed: view.length, featureColumns: visibleFeatures.length, maxScore: latestResult?.maxScore, page: latestResult?.page, pageCount: latestResult?.pageCount, games: view.map(({ id, name, score, count, rank, reviews, positivePercent, earlyAccess, tagIds }) => ({ id, name, score, count, rank, reviews, positivePercent, earlyAccess, tags: (tagIds ?? []).map(id => data.tags[id]) })) }; }

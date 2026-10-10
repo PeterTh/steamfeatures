@@ -3,4 +3,6 @@
 *.woff2 binary
 *.png binary
 *.gz binary
+*.br binary
+*.bin binary
 *.zip binary

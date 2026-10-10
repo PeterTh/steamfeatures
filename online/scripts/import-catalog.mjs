@@ -12,6 +12,7 @@ import { buildSteamArchiveSnapshot } from './steam-archive-snapshot.mjs';
 import { recoverArchivedDenials } from './steam-denials.mjs';
 import { createRefreshState, validateRefreshState } from './refresh-state.mjs';
 import { refreshSteam, mergeSteamState, auditSteamCoverage } from './steam-refresh.mjs';
+import { writeBinaryCatalog } from './catalog-package.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -136,6 +137,7 @@ export async function importCatalog({ sourceFile, output = resolve(ROOT, 'dist')
   await mkdir(dataDirectory, { recursive: true });
   await writeFile(resolve(dataDirectory, filename), bytes);
   await writeFile(resolve(dataDirectory, `${filename}.gz`), compressed);
+  current.binary = await writeBinaryCatalog(catalog, dataDirectory);
   let stateDescriptor;
   if (refreshState) {
     const stateBytes = gzipSync(Buffer.from(JSON.stringify(refreshState)), { level: 9 });
@@ -154,7 +156,9 @@ export async function importCatalog({ sourceFile, output = resolve(ROOT, 'dist')
   await writeFile(resolve(output, 'licenses/NOTICE.txt'), 'Steam Feature Atlas uses BlueBoxWare/steamdb (MIT) and leinstay/steamdb (GPL-3.0).\nThe combined catalog is distributed under GPL-3.0. Upstream game names and other publisher material retain their owners\' rights.\nPinned source revisions and checksums: ../data/manifest.json\nTransformation source: https://github.com/peterth/steamfeatures/tree/main/online\nOriginal sources: https://github.com/BlueBoxWare/steamdb and https://github.com/leinstay/steamdb\n');
   const lock = { version: 1, importedAt, fixture, sources, coverage, catalog: current, ...(stateDescriptor ? { refreshState: stateDescriptor, refresh: refreshSummary } : {}), ...(rawDescriptor ? { steamArchive: rawDescriptor } : {}) };
   await writeFile(resolve(output, 'provenance-lock.json'), JSON.stringify(lock, null, 2) + '\n');
-  console.log(JSON.stringify({ games: games.length, features: features.length, compressedMB: +(compressed.length / 1048576).toFixed(2), ...(rawDescriptor ? { rawArchiveApps: rawDescriptor.apps, rawArchiveCompressedMB: +(rawDescriptor.bytes / 1048576).toFixed(2) } : {}), fixture, output }, null, 2));
+  console.log(JSON.stringify({ games: games.length, features: features.length,
+    browserBrotliMB: +(current.binary.brotli.bytes / 1e6).toFixed(2), browserGzipMB: +(current.binary.gzip.bytes / 1e6).toFixed(2),
+    ...(rawDescriptor ? { rawArchiveApps: rawDescriptor.apps, rawArchiveCompressedMB: +(rawDescriptor.bytes / 1048576).toFixed(2) } : {}), fixture, output }, null, 2));
   return { manifest, catalog };
 }
 

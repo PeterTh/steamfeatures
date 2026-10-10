@@ -4,7 +4,7 @@ import { dirname, extname, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../dist');
-const mime = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json; charset=utf-8', '.gz': 'application/gzip', '.svg': 'image/svg+xml', '.woff': 'font/woff', '.txt': 'text/plain; charset=utf-8' };
+const mime = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json; charset=utf-8', '.gz': 'application/gzip', '.br': 'application/octet-stream', '.bin': 'application/octet-stream', '.svg': 'image/svg+xml', '.woff': 'font/woff', '.txt': 'text/plain; charset=utf-8' };
 const port = Number(process.env.PORT || 4178);
 if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('PORT must be an integer from 1 to 65535');
 
@@ -21,7 +21,7 @@ createServer(async (request, response) => {
     const actual = await realpath(file);
     if (!actual.startsWith(`${await realpath(root)}${sep}`)) { response.writeHead(403).end('Forbidden'); return; }
     const bytes = await readFile(actual);
-    response.writeHead(200, { 'Content-Type': mime[extname(actual)] || 'application/octet-stream', 'Content-Length': bytes.length, 'Cache-Control': /catalog\.[a-f0-9]{16}\.json(?:\.gz)?$/.test(actual) ? 'public, max-age=31536000, immutable' : 'no-cache', 'X-Content-Type-Options': 'nosniff' });
+    response.writeHead(200, { 'Content-Type': mime[extname(actual)] || 'application/octet-stream', 'Content-Length': bytes.length, 'Cache-Control': /catalog\.[a-f0-9]{16}\.(?:json(?:\.gz)?|bin(?:\.(?:gz|br))?)$/.test(actual) ? 'public, max-age=31536000, immutable' : 'no-cache', 'X-Content-Type-Options': 'nosniff' });
     response.end(request.method === 'HEAD' ? undefined : bytes);
   } catch (error) {
     response.writeHead(error.code === 'ENOENT' || error.code === 'ENOTDIR' ? 404 : 500).end('File unavailable');

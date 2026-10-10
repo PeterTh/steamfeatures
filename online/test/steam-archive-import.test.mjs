@@ -152,8 +152,8 @@ test('offline finalization recovers an observed legacy denial without HTTP or ch
   const context = await setup(t);
   const before = await legacyCheckpoint(context);
   await archiveDenial(context);
-  // Leave this inaccessible game's reviews and tags genuinely unknown. Padding
-  // with upcoming records lets the actual production importer run all guards.
+  // Leave this inaccessible game's reviews and tags unknown. Upcoming records
+  // bring the fixture above the production importer's minimum catalog size.
   const sourceFile = context.options.sourceFile;
   const source = JSON.parse(await readFile(sourceFile, 'utf8'));
   const path = join(source.blueboxDirectory, 'data/0');
