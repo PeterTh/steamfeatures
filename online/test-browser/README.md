@@ -21,4 +21,8 @@ These checks use real catalog entries and cover filtering, sorting, shared URLs,
 
 Run `highlight-checks.js` in the same way for column selection, URL persistence, compact table sizing, and tooltip placement. It checks viewports from 320 to 1920 pixels and returns their measured layouts with its results.
 
-`layout-checks.js` checks how the matrix fits the viewport when panels open and close, the window resizes, and keyboard navigation reveals a highlighted column. Run all three harnesses in Firefox and Chromium.
+`layout-checks.js` checks how the matrix fits the viewport when panels open and close, the window resizes, and keyboard navigation reveals a highlighted column.
+
+`release-date-checks.js` checks inclusive day, month, and year bounds, independent settings, filter combinations, invalid dates and ranges, shared URLs, history, and mobile layouts. It also verifies ISO dates in controls, chips, game details, and the catalog update note. Expected results come from the served catalog.
+
+Run all four harnesses in Firefox and Chromium.

@@ -4,7 +4,7 @@ export const DEFAULT_QUERY = Object.freeze({
   q: '', has: Object.freeze([]), not: Object.freeze([]),
   hasTags: Object.freeze([]), notTags: Object.freeze([]), minReviews: 20,
   includeEarlyAccess: false, includeAccessibility: false, includeMultiplayer: false,
-  release: 'released', sort: 'score-desc', page: 1,
+  release: 'released', releaseFrom: '', releaseTo: '', sort: 'score-desc', page: 1,
 });
 
 export const PRESETS = Object.freeze([
@@ -59,6 +59,33 @@ function booleanValue(value, fallback, label) {
   throw new Error(`${label} must be true or false.`);
 }
 
+function knownReleaseDate(value) {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+  const year = Number(value.slice(0, 4));
+  const month = Number(value.slice(5, 7));
+  const day = Number(value.slice(8, 10));
+  if (year === 0 || month < 1 || month > 12 || day < 1) return null;
+  const leap = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+  const days = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  return day <= days[month - 1] ? value : null;
+}
+
+function resolveReleaseBound(value, end = false) {
+  if (typeof value === 'string' && /^\d{4}$/.test(value)) value += end ? '-12-31' : '-01-01';
+  else if (typeof value === 'string' && /^\d{4}-\d{2}$/.test(value)) {
+    let day = end ? 31 : 1;
+    while (day > 28 && knownReleaseDate(`${value}-${day}`) === null) day -= 1;
+    value += `-${String(day).padStart(2, '0')}`;
+  }
+  return knownReleaseDate(value);
+}
+
+function releaseBound(value, label) {
+  if (value === undefined || value === null || value === '') return '';
+  if (resolveReleaseBound(value) === null) throw new Error(`${label} must be a valid date in YYYY, YYYY-MM, or YYYY-MM-DD format.`);
+  return value;
+}
+
 function featureList(value, index, label) {
   if (value === undefined || value === null || value === '') return [];
   const entries = Array.isArray(value) ? value : [value];
@@ -111,13 +138,18 @@ export function normalizeQuery(input = {}, features, tags = []) {
   const sort = source.sort ?? DEFAULT_QUERY.sort;
   if (!RELEASES.has(release)) throw new Error(`Unknown release filter: ${String(release)}.`);
   if (!SORTS.has(sort)) throw new Error(`Unknown sort order: ${String(sort)}.`);
+  const releaseFrom = releaseBound(source.releaseFrom, 'Release start date');
+  const releaseTo = releaseBound(source.releaseTo, 'Release end date');
+  if (releaseFrom && releaseTo && resolveReleaseBound(releaseFrom) > resolveReleaseBound(releaseTo, true)) {
+    throw new Error('Release start date must be on or before the end date.');
+  }
   return {
     q: String(source.q ?? '').normalize('NFKC').trim(), has, not, hasTags, notTags,
     minReviews: wholeNumber(source.minReviews, DEFAULT_QUERY.minReviews, 0, 'Minimum reviews'),
     includeEarlyAccess: booleanValue(source.includeEarlyAccess, DEFAULT_QUERY.includeEarlyAccess, 'Early Access'),
     includeAccessibility: booleanValue(source.includeAccessibility, DEFAULT_QUERY.includeAccessibility, 'Accessibility'),
     includeMultiplayer: booleanValue(source.includeMultiplayer, DEFAULT_QUERY.includeMultiplayer, 'Multiplayer'),
-    release, sort,
+    release, releaseFrom, releaseTo, sort,
     page: wholeNumber(source.page, DEFAULT_QUERY.page, 1, 'Page'),
   };
 }
@@ -137,7 +169,8 @@ export function parseQuery(search = '', features, tags = []) {
     q: single('q'), has: split('has'), not: split('not'), minReviews: single('minReviews'),
     hasTags: params.getAll('tag'), notTags: params.getAll('notTag'),
     includeEarlyAccess: single('ea'), includeAccessibility: single('a11y'), includeMultiplayer: single('mp'),
-    release: single('release'), sort: single('sort'), page: single('page'),
+    release: single('release'), releaseFrom: single('releaseFrom'), releaseTo: single('releaseTo'),
+    sort: single('sort'), page: single('page'),
   }, features, tags);
 }
 
@@ -156,6 +189,8 @@ export function serializeQuery(input, features, tags = []) {
   if (query.includeAccessibility) params.set('a11y', '1');
   if (query.includeMultiplayer) params.set('mp', '1');
   if (query.release !== DEFAULT_QUERY.release) params.set('release', query.release);
+  if (query.releaseFrom) params.set('releaseFrom', query.releaseFrom);
+  if (query.releaseTo) params.set('releaseTo', query.releaseTo);
   if (query.sort !== DEFAULT_QUERY.sort) params.set('sort', query.sort);
   if (query.page !== DEFAULT_QUERY.page) params.set('page', String(query.page));
   return params.size ? `?v=1&${params.toString()}` : '';
@@ -234,7 +269,7 @@ export function prepareCatalog(catalog) {
       reviews,
       rating: knownRating(game.positivePercent, reviews),
       counts, scores,
-      release: typeof game.releaseISO === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(game.releaseISO) ? game.releaseISO : null,
+      release: knownReleaseDate(game.releaseISO),
     };
   });
   const prepared = { [preparedMarker]: true, features: catalog.features, tags, tagsByName, tagCounts, knownTagCount, games };
@@ -258,6 +293,8 @@ export function runQuery(catalog, input = DEFAULT_QUERY) {
   const [sortField, sortDirection] = query.sort.split('-');
   const direction = sortDirection === 'asc' ? 1 : -1;
   const title = query.q.toLocaleLowerCase('en');
+  const releaseFrom = resolveReleaseBound(query.releaseFrom);
+  const releaseTo = resolveReleaseBound(query.releaseTo, true);
   const mask = (query.includeAccessibility ? 1 : 0) | (query.includeMultiplayer ? 2 : 0);
   const count = row => row.counts[mask];
   const score = row => row.scores[mask];
@@ -267,6 +304,8 @@ export function runQuery(catalog, input = DEFAULT_QUERY) {
     const game = row.game;
     if (!query.includeEarlyAccess && game.earlyAccess !== false) return false;
     if (query.release !== 'all' && game.releaseStatus !== query.release) return false;
+    if (releaseFrom && (row.release === null || row.release < releaseFrom)) return false;
+    if (releaseTo && (row.release === null || row.release > releaseTo)) return false;
     if (title && !row.title.includes(title)) return false;
     if (query.minReviews > 0 && (row.reviews === null || row.reviews < query.minReviews)) return false;
     if ((query.has.length || query.not.length) && game.featureDataKnown !== true) return false;

@@ -38,9 +38,10 @@
           <button id="reset" type="button" class="reset-button">Reset filters</button>
         </div>
         <div class="filter-pickers">
-          <div class="picker-tabs" aria-label="Feature and tag filters">
-            <button id="feature-toggle" class="picker-toggle" type="button" aria-label="Require or exclude features" aria-expanded="false" aria-controls="feature-picker"><span class="picker-prefix">Require or exclude </span>features <span id="active-count" class="pill">0</span></button>
-            <button id="tag-toggle" class="picker-toggle" type="button" aria-label="Require or exclude tags" aria-expanded="false" aria-controls="tag-picker"><span class="picker-prefix">Require or exclude </span>tags <span id="active-tag-count" class="pill">0</span></button>
+          <div class="picker-tabs" aria-label="Feature, tag, and release date filters">
+            <button id="feature-toggle" class="picker-toggle" type="button" aria-label="Require or exclude features" aria-expanded="false" aria-controls="feature-picker"><span class="picker-chevron" aria-hidden="true"><svg viewBox="0 0 16 16" focusable="false"><path d="m6 3 5 5-5 5"/></svg></span><span class="picker-prefix">Require or exclude </span>features <span id="active-count" class="pill">0</span></button>
+            <button id="tag-toggle" class="picker-toggle" type="button" aria-label="Require or exclude tags" aria-expanded="false" aria-controls="tag-picker"><span class="picker-chevron" aria-hidden="true"><svg viewBox="0 0 16 16" focusable="false"><path d="m6 3 5 5-5 5"/></svg></span><span class="picker-prefix">Require or exclude </span>tags <span id="active-tag-count" class="pill">0</span></button>
+            <button id="date-toggle" class="picker-toggle" type="button" aria-label="Filter by release date" aria-expanded="false" aria-controls="date-picker"><span class="picker-chevron" aria-hidden="true"><svg viewBox="0 0 16 16" focusable="false"><path d="m6 3 5 5-5 5"/></svg></span><span class="picker-prefix">Filter by </span>release date <span id="active-date-count" class="pill">0</span></button>
             <label id="feature-search-control" class="picker-search" for="feature-search" hidden><span class="sr-only">Find a feature</span><input id="feature-search" type="search" placeholder="Find a feature…" autocomplete="off" aria-controls="feature-options"></label>
             <label id="tag-search-control" class="picker-search" for="tag-search" hidden><span class="sr-only">Find a tag</span><input id="tag-search" type="search" placeholder="Find a tag…" autocomplete="off" aria-controls="tag-options"></label>
           </div>
@@ -51,8 +52,17 @@
             <div id="tag-options" class="feature-options tag-options"></div>
             <p id="tag-empty" class="tag-coverage" role="status" hidden>No tags match your search.</p>
           </section>
+          <section id="date-picker" class="picker-panel" aria-label="Release date filters" hidden>
+            <div class="date-fields">
+              <label for="release-from">Start date<input id="release-from" type="text" placeholder="YYYY-MM-DD" pattern="[0-9]{4}(-[0-9]{2}(-[0-9]{2})?)?" title="YYYY, YYYY-MM, or YYYY-MM-DD" autocomplete="off" spellcheck="false" aria-describedby="date-help date-error"></label>
+              <label for="release-to">End date<input id="release-to" type="text" placeholder="YYYY-MM-DD" pattern="[0-9]{4}(-[0-9]{2}(-[0-9]{2})?)?" title="YYYY, YYYY-MM, or YYYY-MM-DD" autocomplete="off" spellcheck="false" aria-describedby="date-help date-error"></label>
+              <p class="date-format-hint">Month and Day optional</p>
+            </div>
+            <p id="date-help" class="sr-only">Use YYYY, YYYY-MM, or YYYY-MM-DD. Start dates include the first day of the year or month; end dates include the last. Either field can be left blank. Games without an exact release date are excluded while a date filter is active.</p>
+            <p id="date-error" class="date-error" role="status" hidden></p>
+          </section>
         </div>
-        <div id="active-filters" class="active-filters" aria-label="Active feature and tag filters"></div>
+        <div id="active-filters" class="active-filters" aria-label="Active feature, tag, and release date filters"></div>
       </fieldset>
     </form>
     <div id="error" class="error-banner" role="alert" hidden><p id="error-message"></p><button id="retry" type="button">Try loading again</button><button id="error-reset" type="button">Reset filters</button></div>
