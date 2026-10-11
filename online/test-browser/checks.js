@@ -17,9 +17,10 @@ async (page, options = {}) => {
   const dataset = await page.evaluate(async () => {
     const manifest = await fetch('./data/manifest.json').then(response => response.json());
     const catalog = await fetch('./data/' + manifest.current.catalog).then(response => response.json());
+    const { presentationFeatures } = await import('./feature-presentation.mjs');
     const example = game => game && ({id:game.id,name:game.name});
     return {
-      games:catalog.games.length, tags:catalog.tags.length, refresh:manifest.refresh,
+      games:catalog.games.length, tags:catalog.tags.length, features:presentationFeatures(catalog.features).filter(feature => !feature.hardware).length, refresh:manifest.refresh,
       defaultMatching:catalog.games.filter(game => game.releaseStatus === 'released' && game.earlyAccess === false && game.reviews !== null && game.reviews >= 20).length,
       unknown:example(catalog.games.find(game => game.releaseStatus === 'released' && !game.featureDataKnown)),
       denied:example(catalog.games.find(game => game.releaseStatus === 'released' && game.steamLookupStatus === 'unavailable' && game.steamLookupResultCode === 15 && game.reviews === null)),
@@ -32,7 +33,7 @@ async (page, options = {}) => {
     await page.waitForFunction(id => window.steamFeatureAtlas.getView().games.some(game => game.id === id), game.id);
   };
   let v = await view();
-  check('Default filters and 27-column matrix', v.featureColumns === 27 && v.maxScore === 26 && v.filters.minReviews === 20 && !v.filters.includeEarlyAccess && !v.filters.includeAccessibility && !v.filters.includeMultiplayer && v.displayed === 50);
+  check('Default filters and 30-column matrix', v.featureColumns === 30 && v.maxScore === 28 && v.filters.minReviews === 20 && !v.filters.includeEarlyAccess && !v.filters.includeAccessibility && !v.filters.includeMultiplayer && !v.filters.includeHardware && v.displayed === 50);
   check('Weighted score is the default sort', v.filters.sort === 'score-desc' && v.games.every((g,i) => !i || g.score <= v.games[i-1].score));
   check('Sort field and direction have separate compact controls', await page.locator('#sort').inputValue() === 'score' && await page.locator('#sort-desc').getAttribute('aria-pressed') === 'true' && await page.locator('#sort option').allTextContents().then(labels => labels.join(',') === 'Feature Score,Feature Count,Review Score,Review Count,Title,Release date'));
   check('Score is visible and raw count uses no table column', await page.locator('#matrix-head .fixed-score').count() === 1 && await page.locator('#matrix .fixed-count').count() === 0);
@@ -64,18 +65,18 @@ async (page, options = {}) => {
   await page.locator('#reset').click(); await settled();
   const matchCount = (await view()).matching;
   await page.locator('#multiplayer').check(); await settled(); v = await view();
-  check('Multiplayer toggle adds columns and scores without filtering games', v.featureColumns === 42 && v.maxScore === 41 && v.matching === matchCount && page.url().includes('mp=1'));
+  check('Multiplayer toggle adds columns and scores without filtering games', v.featureColumns === 45 && v.maxScore === 43 && v.matching === matchCount && page.url().includes('mp=1'));
   await page.reload(); await settled(); check('Multiplayer setting survives reload', (await view()).filters.includeMultiplayer);
-  await page.locator('#accessibility').check(); await settled(); check('Both feature groups expose 62 retained badges', (await view()).featureColumns === 62 && (await view()).maxScore === 61);
+  await page.locator('#accessibility').check(); await settled(); check('Accessibility and multiplayer expose 65 badges with hardware off', (await view()).featureColumns === 65 && (await view()).maxScore === 63);
   check('Legacy VR is absent from matrix and picker', await page.locator('[data-feature="31"],[data-feature-id="31"]').count() === 0);
-  await page.locator('#multiplayer').uncheck(); await settled(); check('Overlapping chat features need both toggles', (await view()).featureColumns === 45 && (await view()).maxScore === 44 && await page.locator('#feature-72,#feature-73').count() === 0);
+  await page.locator('#multiplayer').uncheck(); await settled(); check('Overlapping chat features need both toggles', (await view()).featureColumns === 48 && (await view()).maxScore === 46 && await page.locator('#feature-72,#feature-73').count() === 0);
   await page.locator('#reset').click(); await settled();
   await page.locator('#search').fill('Left 4 Dead');
   await page.waitForFunction(() => window.steamFeatureAtlas.getView().filters.q === 'Left 4 Dead' && window.steamFeatureAtlas.getView().displayed < 50); await settled();
   v = await view(); check('Title substring and escaped URL', v.games.every(g => g.name.toLowerCase().includes('left 4 dead')) && await page.evaluate(() => new URL(location.href).searchParams.get('q')) === 'Left 4 Dead');
-  await page.locator('#accessibility').check(); await settled(); check('Accessibility expands to 45 columns with multiplayer off', (await view()).featureColumns === 45);
+  await page.locator('#accessibility').check(); await settled(); check('Accessibility expands to 48 columns with multiplayer and hardware off', (await view()).featureColumns === 48);
   await page.locator('#feature-toggle').click();
-  check('Feature picker uses two buttons instead of selects', await page.locator('#feature-options select').count() === 0 && await page.locator('#feature-options .feature-action').count() === 124);
+  check('Feature picker uses two buttons per feature instead of selects', await page.locator('#feature-options select').count() === 0 && await page.locator('#feature-options .feature-action').count() === dataset.features * 2);
   await page.getByRole('button', {name:'Require Steam Achievements',exact:true}).click(); await settled();
   await page.getByRole('button', {name:'Exclude Steam Cloud',exact:true}).click(); await settled();
   v = await view(); check('Require and exclude combine, retained in URL', v.filters.has.includes(22) && v.filters.not.includes(23) && page.url().includes('steam-achievements') && page.url().includes('steam-cloud'));

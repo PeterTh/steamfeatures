@@ -8,7 +8,17 @@ export const STEAM_DATA_REQUEST = Object.freeze({
   include_basic_info: true,
   include_reviews: true,
   include_tag_count: 100,
-  include_best_purchase_option: false
+  include_best_purchase_option: false,
+  include_platforms: true,
+  include_extra_details: true,
+  include_supported_languages: true,
+  include_links: true,
+  include_ratings: true,
+  include_assets: true,
+  include_full_description: true,
+  include_screenshots: true,
+  include_trailers: true,
+  include_assets_without_overrides: true
 });
 
 const API_BASE = 'https://api.steampowered.com/';

@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { DEFAULT_QUERY, normalizeQuery, parseQuery, serializeQuery } from '../src/query.mjs';
 import { parseView, serializeView } from '../src/view-state.mjs';
+import { features as allFeatures } from '../src/features.mjs';
 
 const features = [
   { id: 1, key: 'multi-player', name: 'Multi-player', multiplayer: true },
@@ -72,6 +73,14 @@ test('hidden multiplayer and accessibility columns retain their highlight', () =
       assert.deepEqual(parsed.query, query);
     }
   }
+});
+
+test('a combined hardware column has its own highlight independent of rating filters', () => {
+  const search = serializeView({ ...DEFAULT_QUERY, compatibility: { 'steam-deck': 'playable' }, includeHardware: true }, 'steam-deck', allFeatures);
+  const parsed = parseView(search, allFeatures);
+  assert.equal(parsed.highlight, 'steam-deck');
+  assert.equal(parsed.query.compatibility['steam-deck'], 'playable');
+  assert.equal(serializeView({ ...parsed.query, includeHardware: false }, parsed.highlight, allFeatures).includes('highlight=steam-deck'), true);
 });
 
 test('URLSearchParams input is not changed and string hashes are ignored', () => {

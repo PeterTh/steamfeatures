@@ -1,10 +1,15 @@
-import { mkdir, readFile, writeFile, access } from 'node:fs/promises';
+import { mkdir, readFile, writeFile, access, rename, rm } from 'node:fs/promises';
+import { createReadStream, createWriteStream } from 'node:fs';
+import { Readable, Transform } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { gunzipSync } from 'node:zlib';
 import { validateRefreshState } from './refresh-state.mjs';
 import { validateSteamArchiveSnapshot } from './steam-archive-snapshot.mjs';
+import { STEAM_DATA_FORMAT, validateSteamDataDescriptor } from './steam-data.mjs';
 import { validateBinaryDescriptor, BINARY_MAX_BYTES, COMPRESSED_MAX_BYTES } from '../src/catalog-descriptor.mjs';
 
 export const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
@@ -112,6 +117,32 @@ export async function readPreviousRefreshState(previous) {
 export async function readPreviousSteamArchive(previous) {
   const descriptor = previous?.manifest.steamArchive;
   if (!descriptor) return null;
+  if (descriptor.format === STEAM_DATA_FORMAT) {
+    validateSteamDataDescriptor(descriptor);
+    const directory = fileURLToPath(new URL('../.cache/steam-data/downloads/', import.meta.url));
+    await mkdir(directory, { recursive: true });
+    const sourcePath = resolve(directory, descriptor.file);
+    try {
+      const digest = createHash('sha256'); let size = 0;
+      for await (const chunk of createReadStream(sourcePath)) { digest.update(chunk); size += chunk.length; }
+      if (size === descriptor.bytes && digest.digest('hex') === descriptor.sha256) return { sourcePath, descriptor };
+    } catch (error) { if (error.code !== 'ENOENT') throw error; }
+    const url = new URL(descriptor.file, previous.manifestURL);
+    const response = await fetch(url, { signal: AbortSignal.timeout(180000) });
+    if (!response.ok || !response.body) throw new Error(`Steam archive: HTTP ${response.status}`);
+    const digest = createHash('sha256'); let size = 0;
+    const temporary = `${sourcePath}.tmp`;
+    try {
+      await pipeline(Readable.fromWeb(response.body), new Transform({ transform(chunk, encoding, done) {
+        size += chunk.length;
+        if (size > descriptor.bytes) return done(new Error('Steam archive exceeds declared size'));
+        digest.update(chunk); done(null, chunk);
+      } }), createWriteStream(temporary));
+      if (size !== descriptor.bytes || digest.digest('hex') !== descriptor.sha256) throw new Error('Steam raw archive checksum mismatch');
+      await rename(temporary, sourcePath);
+    } finally { await rm(temporary, { force: true }); }
+    return { sourcePath, descriptor };
+  }
   if (!/^steam-raw\.[a-f0-9]{16}\.json\.gz$/.test(descriptor.file) || !/^[a-f0-9]{64}$/.test(descriptor.sha256)) throw new Error('Untrusted Steam raw archive descriptor');
   const bytes = await download(new URL(descriptor.file, previous.manifestURL), { maximumBytes: 150 * 1024 * 1024 });
   if (sha256(bytes) !== descriptor.sha256) throw new Error('Steam raw archive checksum mismatch');
@@ -124,6 +155,10 @@ export async function readLocalSteamArchive(directory) {
   catch (error) { if (error.code === 'ENOENT') return null; throw error; }
   const descriptor = manifest.steamArchive;
   if (!descriptor) return null;
+  if (descriptor.format === STEAM_DATA_FORMAT) {
+    validateSteamDataDescriptor(descriptor);
+    return { sourcePath: resolve(directory, 'data', descriptor.file), descriptor };
+  }
   if (!/^steam-raw\.[a-f0-9]{16}\.json\.gz$/.test(descriptor.file) || !/^[a-f0-9]{64}$/.test(descriptor.sha256)) throw new Error('Untrusted Steam raw archive descriptor');
   const bytes = await readFile(resolve(directory, 'data', descriptor.file));
   if (bytes.length > 150 * 1024 * 1024 || sha256(bytes) !== descriptor.sha256) throw new Error('Steam raw archive checksum or size mismatch');

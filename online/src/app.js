@@ -1,11 +1,12 @@
 import { DEFAULT_QUERY, PRESETS, normalizeQuery, parseQuery, serializeQuery } from './query.mjs';
 import { parseView, serializeView } from './view-state.mjs';
+import { featureColumns, columnState, compatibilityTargets } from './feature-presentation.mjs';
 
 const $ = id => document.getElementById(id);
 const fmt = n => n == null ? 'Unknown' : new Intl.NumberFormat('en-US').format(n);
 const date = value => value && !Number.isNaN(Date.parse(value)) ? new Date(value).toISOString().slice(0, 10) : 'Unknown';
-const groupColors = { 'Play modes': '#709de0', Controllers: '#b4a0e8', 'Steam features': '#69baa9', Creation: '#e0b775', 'Remote Play': '#6bb8d2', 'Display & VR': '#d095b7', Accessibility: '#becb77' };
-let data = {}, features = new Map(), games = new Map(), state = { ...DEFAULT_QUERY }, view = [], visibleFeatures = [], matching = 0;
+const groupColors = { 'Play modes': '#709de0', Controllers: '#b4a0e8', 'Steam features': '#69baa9', Creation: '#e0b775', 'Remote Play': '#6bb8d2', 'Cloud streaming': '#6bb8d2', 'Display & VR': '#d095b7', Accessibility: '#becb77', 'Steam hardware': '#89c5ad' };
+let data = {}, features = new Map(), columns = new Map(), games = new Map(), state = { ...DEFAULT_QUERY }, view = [], visibleFeatures = [], matching = 0;
 let tagOptionsBuilt = false;
 let worker, ready = false, requestId = 0, latestRequest = 0, latestResult = null, inputTimer;
 let tipAnchor = null, tipPinned = false, currentColumn = null, suppressFocusTip = false, columnCells = new Map();
@@ -29,6 +30,8 @@ let dateDraftDirty = false;
     handshake: '<path d="m2 9 4-5 6 1 5-1 5 5-8 10-3 1-9-9m4-5 7 7 3-3m-9 6 3-3m0 6 3-3M2 9l4 3m16-3-4 3"/>',
     cross: '<rect x="1" y="3" width="9" height="7" rx="1"/><rect x="14" y="14" width="9" height="7" rx="1"/><path d="M17 3h4v7m-3-3 3 3 2-3M7 21H3v-7m-2 3 2-3 3 3"/>',
     gamepad: '<path d="M7 7h10c3 0 5 10 4 12-1 2-4-2-5-3H8c-1 1-4 5-5 3C2 17 4 7 7 7ZM6 11v5m-2-3h5"/><circle cx="16" cy="11" r=".7"/><circle cx="18" cy="14" r=".7"/>',
+    'steam-deck': '<rect x="1" y="5" width="22" height="14" rx="4"/><rect x="7" y="7" width="10" height="10" rx="1"/><path d="M3 10h2m-1-1v2m15-1h2m-1 4h.01M4 15h.01"/>',
+    'steam-machine': '<path d="m3 6 12-3 6 4v13l-12 1-6-4Zm0 0 6 4 12-3M9 10v11m3-4 6-.5"/><circle cx="12" cy="13" r=".6"/>',
     sliders: '<path d="M5 3v5m0 5v8m7-18v10m0 5v3m7-18v3m0 5v10M2 8h6v5H2Zm7 5h6v5H9Zm7-7h6v5h-6Z"/>',
     motion: '<circle cx="9" cy="6" r="4"/><path d="m7 10 2 11h4l-2-11m5-6q5 2 3 7m-2-5q2 1 1 4"/>',
     trophy: '<path d="M7 3h10v7a5 5 0 0 1-10 0ZM7 5H3v3a4 4 0 0 0 4 4m10-7h4v3a4 4 0 0 1-4 4m-5 3v6m-5 0h10"/>',
@@ -70,13 +73,21 @@ let dateDraftDirty = false;
   };
   $('icon-defs').innerHTML = Object.entries(paths).map(([id, path]) => `<symbol id="icon-${id}" viewBox="0 0 24 24">${path}</symbol>`).join('');
   function element(tag, className, text) { const node = document.createElement(tag); if (className) node.className = className; if (text !== undefined) node.textContent = text; return node; }
-  function icon(name) { const node = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); node.setAttribute('class', 'icon'); node.setAttribute('aria-hidden', 'true'); const use = document.createElementNS(node.namespaceURI, 'use'); use.setAttribute('href', '#icon-' + name); node.append(use); return node; }
+  const promptGlyphs = { 'prompt-gamepad': '\u243c', 'prompt-mouse-keyboard': '\u243f', 'prompt-ds4': '\u2440', 'prompt-dualsense': '\u2441', 'prompt-vr': '\u{1f57b}', 'prompt-steam': '\ue00b' };
+  function icon(name) {
+    if (promptGlyphs[name]) { const node = element('span', 'icon prompt-icon', promptGlyphs[name]); node.setAttribute('aria-hidden', 'true'); return node; }
+    const node = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); node.setAttribute('class', 'icon'); node.setAttribute('aria-hidden', 'true'); const use = document.createElementNS(node.namespaceURI, 'use'); use.setAttribute('href', '#icon-' + name); node.append(use); return node;
+  }
   function tipTrigger(node, kind, id) { node.dataset.tip = kind; node.dataset.id = id; return node; }
   function link(url, label, className, text) { const a = element('a', className, text); a.href = url; a.target = '_blank'; a.rel = 'noopener noreferrer'; a.setAttribute('aria-label', label); return a; }
 
   function render() {
     hideTip(); highlightColumn(null); columnCells = new Map();
-    view = latestResult.rows.map(g => ({ ...g, featureSet: new Set(g.featureIds) })); games = new Map(view.map(g => [g.id,g])); matching = latestResult.total; visibleFeatures = latestResult.columns.map(id => features.get(id));
+    view = latestResult.rows.map(g => ({ ...g, featureSet: new Set(g.featureIds) })); games = new Map(view.map(g => [g.id,g])); matching = latestResult.total; visibleFeatures = latestResult.columns.map(id => columns.get(id));
+    $('legend-listed-label').textContent = state.includeHardware ? 'Listed / Verified' : 'Listed';
+    $('legend-absent-label').textContent = 'Not listed';
+    $('legend-unknown-label').textContent = state.includeHardware ? 'Untested / Unknown' : 'Unknown';
+    $('legend-playable').hidden = !state.includeHardware;
     $('result-summary').textContent = `${fmt(matching)} matching games · ${visibleFeatures.length} counted features · ${latestResult.maxScore}-point scale`;
     $('page-summary').textContent = 'Page ' + fmt(latestResult.page) + ' of ' + fmt(latestResult.pageCount);
     $('page').value = latestResult.page; $('page').max = latestResult.pageCount;
@@ -115,9 +126,9 @@ let dateDraftDirty = false;
       tr.append(rank, name, score);
       let group = null;
       for (const f of visibleFeatures) {
-        const advertised = g.featureSet.has(f.id), td = element('td', 'feature-cell' + (f.group !== group ? ' group-start' : ''));
-        td.dataset.feature = f.id; td.dataset.supported = g.featureDataKnown ? String(advertised) : 'unknown'; td.setAttribute('headers', `game-${g.id} feature-${f.id}`);
-        const mark = element('span', advertised ? 'check' : 'dash', !g.featureDataKnown ? '?' : advertised ? '✓' : '–'); mark.setAttribute('aria-hidden', 'true'); td.append(mark, element('span', 'sr-only', !g.featureDataKnown ? 'Unknown' : advertised ? 'Listed' : 'Not listed')); tr.append(td); columnCells.get(f.id).push(td); group = f.group;
+        const status = columnState(g, f), td = element('td', 'feature-cell' + (f.group !== group ? ' group-start' : ''));
+        td.dataset.feature = f.id; td.dataset.supported = status.supported; td.dataset.status = status.status; td.setAttribute('headers', `game-${g.id} feature-${f.id}`); td.title = `${f.name}: ${status.label}`;
+        const mark = element('span', status.className, status.mark); mark.setAttribute('aria-hidden', 'true'); td.append(mark, element('span', 'sr-only', status.label)); tr.append(td); columnCells.get(f.id).push(td); group = f.group;
       }
       rows.append(tr);
     }
@@ -140,7 +151,7 @@ let dateDraftDirty = false;
     for (const node of columnCells.get(currentColumn) || []) node.classList.add('column-highlight');
   }
   function syncHighlight(reveal = false) {
-    const selected = data.features.find(f => f.key === highlightedFeature);
+    const selected = [...columns.values()].find(f => f.key === highlightedFeature);
     const visible = selected && columnCells.has(selected.id) && view.length > 0;
     for (const [id, nodes] of columnCells) for (const node of nodes) node.classList.toggle('column-selected', id === selected?.id);
     const chip = $('highlight-chip');
@@ -161,7 +172,7 @@ let dateDraftDirty = false;
   }
   function revealHighlightedColumn() {
     if (!revealHighlightPending || $('results').hidden) return;
-    const selected = data.features.find(f => f.key === highlightedFeature);
+    const selected = [...columns.values()].find(f => f.key === highlightedFeature);
     const header = selected && $('feature-' + selected.id);
     if (!header || !view.length) return;
     const region = $('matrix-region'), rect = header.getBoundingClientRect();
@@ -216,21 +227,40 @@ let dateDraftDirty = false;
     hideTip(); tipAnchor = anchor; tipPinned = pinned;
     const tip = $('tooltip'), id = Number(anchor.dataset.id), interactive = anchor.dataset.tip === 'feature'; tip.replaceChildren(); tip.hidden = false; tip.classList.toggle('pinned', pinned); tip.classList.toggle('interactive', interactive); tip.setAttribute('role', pinned || interactive ? 'dialog' : 'tooltip');
     if (anchor.dataset.tip === 'feature') {
-      const f = features.get(id), weight = f.weight ?? 1; tip.append(element('p', 'tip-kicker', f.group), element('h3', '', f.name), element('p', '', f.description), element('p', 'tip-weight', `${weight < 0 ? '−' + Math.abs(weight) : weight} score ${Math.abs(weight) === 1 ? 'point' : 'points'}${weight === 0 ? ' · Included in raw count only' : ''}`), element('p', 'tip-fine', `${view.filter(g => g.featureSet.has(id)).length} of ${view.length} displayed games advertise this feature.`)); tip.setAttribute('aria-label', f.name);
+      const f = columns.get(id), weight = f.weight ?? 1;
+      tip.append(element('p', 'tip-kicker', f.group), element('h3', '', f.name), element('p', '', f.description)); tip.setAttribute('aria-label', f.name);
+      if (f.statuses) {
+        const ratings = element('div', 'rating-options');
+        for (const rating of f.statuses) {
+          const status = columnState({ featureIds: [rating.id] }, f), row = element('div', 'rating-option');
+          const mark = element('span', status.className, status.mark); mark.setAttribute('aria-hidden', 'true');
+          row.append(mark, element('span', '', `${rating.label} (${rating.weight > 0 ? '+' : rating.weight < 0 ? '−' : ''}${Math.abs(rating.weight)})`)); ratings.append(row);
+        }
+        tip.append(ratings);
+      } else tip.append(element('p', 'tip-weight', `${weight < 0 ? '−' + Math.abs(weight) : weight} score ${Math.abs(weight) === 1 ? 'point' : 'points'}${weight === 0 ? ' · Included in raw count only' : ''}`), element('p', 'tip-fine', `${view.filter(g => g.featureSet.has(id)).length} of ${view.length} displayed games advertise this feature.`));
       const controls = element('div', 'tip-actions');
       const highlight = element('button', 'highlight-button', f.key === highlightedFeature ? 'Clear highlight' : 'Highlight column');
       highlight.type = 'button'; highlight.dataset.featureKey = f.key; highlight.setAttribute('aria-pressed', String(f.key === highlightedFeature));
       highlight.addEventListener('click', () => setHighlight(f.key === highlightedFeature ? null : f.key));
-      controls.append(highlight, featureActions(f, true)); tip.append(controls);
+      controls.append(highlight);
+      if (f.statuses) {
+        const filter = element('button', 'highlight-button', 'Filter by compatibility'); filter.type = 'button';
+        filter.addEventListener('click', () => {
+          hideTip(); if ($('compatibility-picker').hidden) togglePicker('compatibility');
+          $('compatibility-' + f.key).focus();
+        }); controls.append(filter);
+      } else controls.append(featureActions(f, true));
+      tip.append(controls);
     } else {
       const g = games.get(id); if (!g) { hideTip(); return; }
       tip.append(element('p', 'tip-kicker', (g.earlyAccess ? 'Early Access · ' : '') + g.releaseStatus), element('h3', '', g.name)); tip.setAttribute('aria-label', g.name + ' details');
-      const dl = element('dl'), non = data.features.filter(f => !f.accessibility), count = list => g.featureDataKnown ? list.filter(f => g.featureSet.has(f.id)).length + ' / ' + list.length : 'Unknown';
+      const all = [...columns.values()], dl = element('dl'), non = all.filter(f => !f.accessibility), count = list => g.featureDataKnown ? list.filter(f => columnState(g, f).listed).length + ' / ' + list.length : 'Unknown';
       addPair(dl, 'Feature score', g.score == null ? 'Unknown' : `${g.score} / ${latestResult.maxScore}`); addPair(dl, 'Visible feature count', count(visibleFeatures));
-      addPair(dl, 'Non-accessibility total', count(non)); addPair(dl, 'All features', count(data.features));
+      addPair(dl, 'Non-accessibility total', count(non)); addPair(dl, 'All features', count(all));
       addPair(dl, g.reviewSource === 'steam' ? 'Steam-purchase reviews' : 'Reviews', fmt(g.reviews));
       if (g.positivePercent != null) addPair(dl, 'Positive reviews', g.positivePercent + '%');
       addPair(dl, 'Release date', date(g.releaseISO));
+      if (g.achievementCount !== undefined) addPair(dl, 'Achievements', fmt(g.achievementCount));
       if (g.metadataUpdatedAt) addPair(dl, 'Steam metadata checked', date(g.metadataUpdatedAt));
       tip.append(dl);
       tip.append(element('p', 'tip-fine', (g.genres || []).join(' · ')), element('p', 'tip-fine', 'Steam app ' + g.id));
@@ -282,8 +312,8 @@ function startWorker() {
       showError(message.message, !ready); return;
     }
     if (message.type === 'ready') {
-      data = message; data.tags ??= []; features = new Map(data.features.map(f => [f.id, f])); ready = true;
-      buildPicker(); tagOptionsBuilt = false; $('tag-options').replaceChildren(); if (!$('tag-picker').hidden) buildTagPicker(); updateMetadata(); $('query-controls').disabled = false;
+      data = message; data.tags ??= []; features = new Map(data.features.map(f => [f.id, f])); columns = new Map(featureColumns(data.features).map(f => [f.id, f])); ready = true;
+      buildPicker(); buildCompatibilityPicker(); tagOptionsBuilt = false; $('tag-options').replaceChildren(); if (!$('tag-picker').hidden) buildTagPicker(); updateMetadata(); $('query-controls').disabled = false;
       for (const button of $('presets').querySelectorAll('button')) button.disabled = false;
       loadURL();
     }
@@ -338,6 +368,7 @@ function setFilters(patch, resetPage = true) {
 function syncControls(preserveDateDraft = false) {
   $('search').value = state.q; $('early-access').checked = state.includeEarlyAccess; $('accessibility').checked = state.includeAccessibility;
   $('multiplayer').checked = state.includeMultiplayer;
+  $('hardware').checked = state.includeHardware;
   $('min-reviews').value = state.minReviews; $('release').value = state.release;
   if (!preserveDateDraft || !dateDraftDirty) {
     $('release-from').value = state.releaseFrom; $('release-to').value = state.releaseTo;
@@ -353,6 +384,11 @@ function syncControls(preserveDateDraft = false) {
   $('active-count').textContent = state.has.length + state.not.length;
   $('active-tag-count').textContent = state.hasTags.length + state.notTags.length;
   $('active-date-count').textContent = Number(!!state.releaseFrom) + Number(!!state.releaseTo);
+  $('active-compatibility-count').textContent = Object.values(state.compatibility).filter(value => value !== 'ignore').length;
+  for (const target of compatibilityTargets) {
+    const select = $('compatibility-' + target.key); select.value = state.compatibility[target.key];
+    select.closest('label').classList.toggle('selected', select.value !== 'ignore');
+  }
   syncTagOptions();
   const chips = [], chipContainer = $('active-filters');
   const existingChips = new Map([...chipContainer.children].map(chip => [chip.dataset.filterKey, chip]));
@@ -382,6 +418,13 @@ function syncControls(preserveDateDraft = false) {
     if (!state[key]) continue;
     const chip = addChip(key, 'date-chip', `${label} ${state[key]} ×`, 'Remove ' + boundary + ' release date', () => setFilters({ [key]: '' }));
     chip.dataset.dateBound = key;
+  }
+  for (const target of compatibilityTargets) {
+    const rating = target.ratings.find(option => option.value === state.compatibility[target.key]);
+    if (!rating) continue;
+    const chip = addChip(JSON.stringify(['compatibility', target.key, rating.value]), 'compatibility-chip', `${target.name}: ${rating.label} ×`,
+      `Remove ${target.name} compatibility filter`, () => setFilters({ compatibility: { ...state.compatibility, [target.key]: 'ignore' } }));
+    chip.dataset.compatibilityTarget = target.key;
   }
   // Keep unchanged buttons in place so a date-field blur cannot interrupt their click or focus.
   for (const [index, chip] of chips.entries()) {
@@ -435,12 +478,29 @@ function featureActions(f, fromTip = false) {
 function buildPicker() {
   const fragment = document.createDocumentFragment();
   for (const f of data.features) {
+    if (f.hardware) continue;
     const label = element('div', 'feature-option'); label.dataset.name = f.name.toLowerCase(); label.dataset.featureId = f.id; label.title = f.description;
     label.style.setProperty('--group-color', groupColors[f.group] ?? '#667a91');
     const name = element('span', 'option-name'); name.append(icon(f.icon), element('span', '', f.name));
     label.append(name, featureActions(f)); fragment.append(label);
   }
   $('feature-options').replaceChildren(fragment);
+}
+function buildCompatibilityPicker() {
+  const fragment = document.createDocumentFragment();
+  for (const target of compatibilityTargets) {
+    const label = element('label', 'compatibility-option'), name = element('span', 'option-name', target.name);
+    const column = [...columns.values()].find(column => column.key === target.key);
+    if (column) name.prepend(icon(column.icon));
+    const select = element('select'); select.id = 'compatibility-' + target.key;
+    select.setAttribute('aria-describedby', 'compatibility-help');
+    for (const rating of [{ value: 'ignore', label: 'Ignore' }, ...target.ratings]) {
+      const option = element('option', '', rating.label); option.value = rating.value; select.append(option);
+    }
+    select.addEventListener('change', () => setFilters({ compatibility: { ...state.compatibility, [target.key]: select.value } }));
+    label.append(name, select); fragment.append(label);
+  }
+  $('compatibility-options').replaceChildren(fragment);
 }
 function buildTagPicker() {
   if (tagOptionsBuilt) return;
@@ -480,7 +540,7 @@ function filterTagOptions() {
 }
 function togglePicker(kind) {
   const open = $(kind + '-picker').hidden;
-  for (const name of ['feature', 'tag', 'date']) {
+  for (const name of ['feature', 'tag', 'date', 'compatibility']) {
     const expanded = name === kind && open; $(name + '-picker').hidden = !expanded;
     const searchControl = $(name + '-search-control'); if (searchControl) searchControl.hidden = !expanded;
     $(name + '-toggle').setAttribute('aria-expanded', String(expanded));
@@ -488,7 +548,7 @@ function togglePicker(kind) {
   if (kind === 'tag' && open) { buildTagPicker(); syncTagOptions(); }
 }
 function updateMetadata() {
-  $('package-summary').textContent = `${fmt(data.gameCount)} games · ${data.features.length} feature labels`;
+  $('package-summary').textContent = `${fmt(data.gameCount)} games · ${columns.size} feature columns`;
   const compression = { brotli: 'Brotli', gzip: 'gzip', uncompressed: 'uncompressed' }[data.catalogCompression];
   const fileSize = data.catalogBytes == null ? '' : ` (${(data.catalogBytes / 1_000_000).toFixed(2)} MB)`;
   $('method-dates').textContent = `Updated ${date(data.importedAt)}. Individual games may have older data.${compression ? ` Data file: ${compression}${fileSize}.` : ''}`;
@@ -504,6 +564,7 @@ $('search').addEventListener('input', e => { clearTimeout(inputTimer); state = {
 $('early-access').addEventListener('change', e => setFilters({ includeEarlyAccess: e.target.checked }));
 $('accessibility').addEventListener('change', e => setFilters({ includeAccessibility: e.target.checked }));
 $('multiplayer').addEventListener('change', e => setFilters({ includeMultiplayer: e.target.checked }));
+$('hardware').addEventListener('change', e => setFilters({ includeHardware: e.target.checked }));
 $('release').addEventListener('change', e => setFilters({ release: e.target.value }));
 for (const id of ['release-from', 'release-to']) {
   $(id).addEventListener('input', () => { dateDraftDirty = true; });
@@ -515,7 +576,7 @@ for (const direction of ['asc', 'desc']) $('sort-' + direction).addEventListener
 $('min-reviews').addEventListener('change', e => { if (e.target.value !== '' && e.target.reportValidity()) setFilters({ minReviews: Number(e.target.value) }); else e.target.value = state.minReviews; });
 $('feature-search').addEventListener('input', e => { for (const label of $('feature-options').children) label.hidden = !label.dataset.name.includes(e.target.value.toLowerCase()); });
 $('tag-search').addEventListener('input', filterTagOptions);
-for (const kind of ['feature', 'tag', 'date']) $(kind + '-toggle').addEventListener('click', () => togglePicker(kind));
+for (const kind of ['feature', 'tag', 'date', 'compatibility']) $(kind + '-toggle').addEventListener('click', () => togglePicker(kind));
 for (const id of ['reset', 'empty-reset', 'error-reset']) $(id).addEventListener('click', () => setFilters(DEFAULT_QUERY));
 $('retry').addEventListener('click', startWorker);
 $('highlight-chip').addEventListener('click', () => setHighlight(null));

@@ -4,10 +4,15 @@
   "description": "A browser-based explorer for Steam features and tags",
   "license": "MIT",
   "author": "Peter Thoman",
-  "repository": { "type": "git", "url": "https://github.com/peterth/steamfeatures.git" },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/peterth/steamfeatures.git"
+  },
   "private": true,
   "type": "module",
-  "engines": { "node": ">=22" },
+  "engines": {
+    "node": ">=24.15"
+  },
   "scripts": {
     "test": "node --test test/*.test.mjs test-query/*.test.mjs",
     "build": "node --max-old-space-size=4096 scripts/build.mjs",
@@ -15,6 +20,14 @@
     "verify:site": "node --max-old-space-size=4096 scripts/verify-site.mjs",
     "package:bootstrap": "node --max-old-space-size=4096 scripts/package-bootstrap.mjs",
     "import": "node --max-old-space-size=4096 scripts/import-catalog.mjs",
+    "collect:steam": "node --max-old-space-size=4096 scripts/collect-steam-data.mjs",
     "start": "node scripts/serve.mjs"
+  },
+  "dependencies": {
+    "steam-user": "5.3.0"
+  },
+  "overrides": {
+    "adm-zip": "0.6.1",
+    "steam-appticket": { "protobufjs": "7.6.6" }
   }
 }

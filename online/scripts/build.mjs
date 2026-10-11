@@ -14,12 +14,14 @@ if (dirname(liveOutput) !== root || dirname(output) !== cache || dirname(predece
 const sourceIndex = process.argv.indexOf('--sources');
 const stateIndex = process.argv.indexOf('--steam-state');
 const limitIndex = process.argv.indexOf('--steam-limit');
+const dataIndex = process.argv.indexOf('--steam-data');
 try {
 await importCatalog({ output, fixture: process.argv.includes('--fixture'), sourceFile: sourceIndex >= 0 ? process.argv[sourceIndex + 1] : undefined,
   ...(process.argv.includes('--refresh-steam') || process.argv.includes('--bootstrap-steam') ? { refresh: true } : {}),
   bootstrap: process.argv.includes('--bootstrap-steam'), steamStateFile: stateIndex >= 0 ? process.argv[stateIndex + 1] : undefined,
   finalizeSteam: process.argv.includes('--finalize-steam'),
   localPreviousDirectory: liveOutput,
+  steamDataFile: dataIndex >= 0 ? process.argv[dataIndex + 1] : undefined,
   ...(limitIndex >= 0 ? { steamLimit: Number(process.argv[limitIndex + 1]) } : {})
 });
 await copyFile(resolve(root, 'src/template.html'), resolve(output, 'index.html'));

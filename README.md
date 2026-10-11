@@ -8,9 +8,10 @@ See the [setup and deployment instructions](online/README.md#publish-to-github-p
 
 ## Development
 
-Node.js 22+ and Git are required. There are no npm dependencies to install.
+Node.js 24.15+ and Git are required. Install the offline collector's dependencies before running checks:
 
 ```sh
+npm --prefix online ci --ignore-scripts
 npm --prefix online test
 ```
 
@@ -34,6 +35,8 @@ Open http://127.0.0.1:4178/. Edit files in `online/src/`; `online/dist/` is gene
 | `.github/workflows/` | Refresh and GitHub Pages deployment |
 
 Generated catalogs (`online/dist/`), download/checkpoint caches (`online/.cache/`), and screenshots/reports (`online/test-results/`) are ignored.
+
+The [Steam data collection reference](docs/steam-data.md) records collected fields, compatibility semantics, fallback behavior, storage, collection commands and the optional future requirements pass.
 
 ## License
 

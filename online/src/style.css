@@ -43,3 +43,14 @@ main{padding-top:1.3rem}.masthead{justify-content:flex-start;gap:1.25rem;flex-wr
 @media(min-width:500px) and (max-width:650px){.masthead{grid-template-columns:1fr auto}.masthead .brand{grid-column:1/-1}.masthead .views{grid-column:1;grid-row:2}.masthead .header-actions{grid-column:2;grid-row:2}}
 
 .method-content .legal-note{font-size:.75rem;line-height:1.5;margin-top:1rem;text-align:left}
+
+@font-face{font-family:PromptFont;src:url('./fonts/promptfont.woff2') format('woff2');font-weight:400;font-style:normal;font-display:block}
+.icon.prompt-icon{font-family:PromptFont;font-size:1.3rem;font-weight:400;font-style:normal;line-height:1;display:inline-grid;place-items:center;flex-shrink:0}
+.feature-cell .check,.rating-option .check,.legend .check{display:inline-grid;place-items:center;border-radius:.18rem;width:1.15rem;height:1.15rem;background:#193f37;color:#83edc8;font-size:.85rem;font-weight:600;line-height:1}
+.feature-cell .check.playable,.rating-option .check.playable,.legend .check.playable{background:#493e20;color:#f1d376}
+.feature-cell .check.negative,.rating-option .check.negative,.legend .check.negative{background:#4b252e;color:#ffadb9}
+.legend{flex-wrap:wrap;justify-content:flex-end;gap:.4rem .8rem}.legend .check{width:.95rem;height:.95rem;margin-right:.15rem;font-size:.8rem}
+.rating-options{display:grid;gap:.4rem;margin:.8rem 0}.rating-option{display:grid;grid-template-columns:1.15rem 1fr;align-items:center;gap:.65rem}.rating-option .dash{text-align:center;color:var(--muted)}
+.compatibility-options{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:.75rem;padding:.35rem 0}.compatibility-option{display:flex;flex-direction:column;gap:.5rem;min-width:0;padding:.7rem;border:1px solid var(--line);border-radius:.35rem;background:var(--panel);font-size:.875rem}.compatibility-option select{width:100%;font-size:.875rem}.compatibility-option.selected{border-color:#55967e}.compatibility-option .icon{color:#a7bacd}.compatibility-help{font-size:.8rem;color:var(--muted);line-height:1.5;margin:.35rem 0}.compatibility-chip{border-color:#677e99;background:#202f43;color:#d4e2f3}
+@media(max-width:900px){.compatibility-options{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:450px){.compatibility-options{grid-template-columns:1fr}}

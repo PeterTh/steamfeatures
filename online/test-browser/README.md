@@ -17,7 +17,7 @@ console.log(result);
 
 The default base URL is `http://127.0.0.1:4178/`. Screenshots are disabled unless `screenshotDirectory` is supplied. When enabled, the harness writes `desktop.png`, `mobile.png`, and `tags.png` inside that directory. Test reports and screenshots belong in the ignored `test-results/` directory.
 
-These checks use real catalog entries and cover filtering, sorting, shared URLs, history, tooltips, tags, and desktop/mobile layouts. They require a full catalog rather than the tiny fixture used by the Node importer tests. Playwright is a separate development tool; the application itself has no npm dependencies.
+These checks use real catalog entries and cover filtering, sorting, shared URLs, history, tooltips, tags, and desktop/mobile layouts. They require a full catalog rather than the tiny fixture used by the Node importer tests. Playwright is a separate development tool; the browser application itself has no npm dependencies. The offline Steam collector uses the locked `steam-user` dependency.
 
 Run `highlight-checks.js` in the same way for column selection, URL persistence, compact table sizing, and tooltip placement. It checks viewports from 320 to 1920 pixels and returns their measured layouts with its results.
 
@@ -25,4 +25,6 @@ Run `highlight-checks.js` in the same way for column selection, URL persistence,
 
 `release-date-checks.js` checks inclusive day, month, and year bounds, independent settings, filter combinations, invalid dates and ranges, shared URLs, history, and mobile layouts. It also verifies ISO dates in controls, chips, game details, and the catalog update note. Expected results come from the served catalog.
 
-Run all four harnesses in Firefox and Chromium.
+`steam-enrichment-checks.js` checks cloud flag ordering, Dynamic Cloud Sync, negative-score badges, achievement counts, the four opt-in hardware columns and their rating symbols. It verifies the dedicated compatibility dropdowns, exact rating matches, combinations, chips, URL/history/reset behavior, unavailable-data handling, embedded icons, and layouts from 320 to 1440 pixels. It needs an enriched catalog with examples of these flags and all four Deck ratings.
+
+Run all five harnesses in Firefox and Chromium.

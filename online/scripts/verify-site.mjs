@@ -8,6 +8,7 @@ import { decodeBinaryCatalog } from '../src/catalog-binary.mjs';
 import { BINARY_MAX_BYTES, COMPRESSED_MAX_BYTES } from '../src/catalog-descriptor.mjs';
 import { validateRefreshState } from './refresh-state.mjs';
 import { validateSteamArchiveSnapshot } from './steam-archive-snapshot.mjs';
+import { STEAM_DATA_FORMAT, readSteamDataArchive } from './steam-data.mjs';
 import { readPreviousManifest, readPreviousRefreshState, sha256, validateCatalogDescriptor } from './sources.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -93,13 +94,18 @@ export async function verifySite(directory = resolve(ROOT, 'dist'), { minimumGam
   if (manifest.previous) await catalogBytes(data, manifest.previous);
   const state = validateRefreshState(await auxiliary(data, manifest.refreshState, 'refresh', 80 * 1024 * 1024, 300 * 1024 * 1024));
   if (!state.bootstrapComplete || Object.keys(state.apps).length === 0) throw new Error('Steam refresh state is incomplete; refusing a deployment that would repeat the backfill.');
-  const archive = validateSteamArchiveSnapshot(await auxiliary(data, manifest.steamArchive, 'steam-raw', 150 * 1024 * 1024, 1024 * 1024 * 1024));
-  if (Object.keys(archive.apps).length !== manifest.steamArchive.apps) throw new Error('Steam raw archive app count does not match its manifest.');
+  if (manifest.steamArchive.format === STEAM_DATA_FORMAT) {
+    for await (const record of readSteamDataArchive(resolve(data, manifest.steamArchive.file), manifest.steamArchive)) { /* Streaming integrity and schema validation. */ }
+  } else {
+    const archive = validateSteamArchiveSnapshot(await auxiliary(data, manifest.steamArchive, 'steam-raw', 150 * 1024 * 1024, 1024 * 1024 * 1024));
+    if (Object.keys(archive.apps).length !== manifest.steamArchive.apps) throw new Error('Steam raw archive app count does not match its manifest.');
+  }
   const provenance = JSON.parse(await readFile(resolve(site, 'provenance-lock.json'), 'utf8'));
   if (provenance.catalog?.sha256 !== manifest.current.sha256 || !isDeepStrictEqual(provenance.catalog?.binary, manifest.current.binary) || provenance.refreshState?.sha256 !== manifest.refreshState.sha256 || provenance.steamArchive?.sha256 !== manifest.steamArchive.sha256) {
     throw new Error('Provenance lock does not match the manifest.');
   }
-  for (const name of ['index.html', 'app.js', 'style.css', 'query.mjs', 'features.mjs', 'filter-worker.js', 'brand.svg', '.nojekyll',
+  for (const name of ['index.html', 'app.js', 'style.css', 'query.mjs', 'features.mjs', 'feature-presentation.mjs', 'extra-features.mjs', 'filter-worker.js', 'brand.svg', '.nojekyll',
+    'fonts/promptfont.woff2', 'fonts/PromptFont-LICENSE.txt', 'fonts/PromptFont-NOTICE.txt',
     'fonts/roboto-condensed-variable.woff', 'fonts/LICENSE.txt', 'fonts/NOTICE.txt', 'licenses/BlueBoxWare-MIT.txt', 'licenses/leinstay-GPL-3.0.txt', 'licenses/NOTICE.txt']) {
     await readFile(resolve(site, name));
   }
@@ -107,7 +113,7 @@ export async function verifySite(directory = resolve(ROOT, 'dist'), { minimumGam
     await readFile(resolve(site, 'catalog-binary.mjs'));
     await readFile(resolve(site, 'catalog-descriptor.mjs'));
   }
-  return { games: catalog.games.length, stateApps: Object.keys(state.apps).length, rawApps: Object.keys(archive.apps).length, catalogSha256: manifest.current.sha256 };
+  return { games: catalog.games.length, stateApps: Object.keys(state.apps).length, rawApps: manifest.steamArchive.apps, catalogSha256: manifest.current.sha256 };
 }
 
 /** Fail before the importer can start a fresh backfill on an empty Pages site. */

@@ -13,12 +13,18 @@ import { recoverArchivedDenials } from './steam-denials.mjs';
 import { createRefreshState, validateRefreshState } from './refresh-state.mjs';
 import { refreshSteam, mergeSteamState, auditSteamCoverage } from './steam-refresh.mjs';
 import { writeBinaryCatalog } from './catalog-package.mjs';
+import { openSteamData, withSteamData, projectSteamData, mergeSteamEnrichment } from './steam-data-import.mjs';
+import { writeSteamDataArchive } from './steam-data.mjs';
+import { archiveRecord } from './steam-enrichment.mjs';
+import { createPicsClient } from './steam-pics.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 export async function importCatalog({ sourceFile, output = resolve(ROOT, 'dist'), previousURL = process.env.PAGES_BASE_URL, fixture = false,
   refresh = !fixture && !sourceFile, bootstrap = false, steamLimit = Number(process.env.STEAM_REFRESH_LIMIT || 4000),
-  steamStateFile, steamClient, now, finalizeSteam = false, localPreviousDirectory, checkpointFile = resolve(ROOT, '.cache/steam-refresh-state.json') } = {}) {
+  steamStateFile, steamClient, now, finalizeSteam = false, localPreviousDirectory, steamDataFile, checkpointFile = resolve(ROOT, '.cache/steam-refresh-state.json') } = {}) {
+  let steamData, picsClient;
+  try {
   if (finalizeSteam && !sourceFile) throw new Error('Finalizing Steam data requires prepared --sources');
   if (finalizeSteam && (!Number.isSafeInteger(steamLimit) || steamLimit < 1 || steamLimit > 5000)) throw new Error('Steam refresh limit must be between 1 and 5000');
   if (finalizeSteam) refresh = true;
@@ -77,6 +83,11 @@ export async function importCatalog({ sourceFile, output = resolve(ROOT, 'dist')
     } catch (error) { if (error.code !== 'ENOENT') throw error; }
     if (finalizeSteam && !refreshState) throw new Error('Finalizing Steam data requires a saved Steam checkpoint');
     refreshState ??= createRefreshState();
+    if (steamDataFile || previousRawArchive?.sourcePath) steamData = await openSteamData({
+      filename: steamDataFile ? resolve(steamDataFile) : resolve(dirname(checkpointFile), 'steam-data/steam.sqlite'),
+      previous: previousRawArchive, journalDirectory: rawArchiveDirectory, requireExisting: Boolean(steamDataFile), state: refreshState,
+      checkpointOnly: finalizeSteam && Boolean(steamDataFile)
+    });
     await recoverArchivedDenials(refreshState, rawArchiveDirectory);
     bootstrap ||= !refreshState.bootstrapComplete;
     if (bootstrap && !finalizeSteam && process.env.STEAM_ALLOW_BOOTSTRAP === '0') {
@@ -94,13 +105,23 @@ export async function importCatalog({ sourceFile, output = resolve(ROOT, 'dist')
         discovered: 0, refreshed: 0, failures: 0, requests: 0, finalizedFromCheckpoint: true };
     } else {
       if (!steamClient) console.log(`Steam responses: archiving full JSON to ${rawArchiveDirectory}`);
-      const client = steamClient ?? createSteamClient({ maxRequests: bootstrap ? 1000 : 100, spacingMs: Number(process.env.STEAM_REQUEST_SPACING_MS || 2000),
+      let client = steamClient ?? createSteamClient({ maxRequests: bootstrap ? 1000 : 100, spacingMs: Number(process.env.STEAM_REQUEST_SPACING_MS || 5000),
         recordResponse: createSteamResponseArchive({ directory: rawArchiveDirectory }) });
+      if (steamData && !steamClient) {
+        picsClient = createPicsClient({ spacingMs: Math.max(5000, Number(process.env.STEAM_REQUEST_SPACING_MS || 5000)) });
+        client = withSteamData(client, picsClient, steamData);
+      }
       const result = await refreshSteam({ games: normalizedGames, features, state: refreshState, client, now: importedAt, budget: steamLimit, bootstrap, checkpoint });
       refreshState = result.state;
       refreshSummary = result.summary;
     }
+    const projections = steamData ? projectSteamData(steamData, refreshState, features) : undefined;
+    if (finalizeSteam) {
+      refreshSummary.lastRunAt = newestAttempt(refreshState) || null;
+      refreshSummary.checkedGames = Object.values(refreshState.apps).filter(entry => entry.metadata?.appType === 0).length;
+    }
     ({ games: normalizedGames, tagsByApp } = mergeSteamState(normalizedGames, tagsByApp, refreshState));
+    if (projections) normalizedGames = mergeSteamEnrichment(normalizedGames, projections, features);
     refreshAudit = auditSteamCoverage(normalizedGames, refreshState);
     refreshSummary.unresolvedReleased = refreshAudit.unresolved.length;
     refreshSummary.deniedReleased = refreshAudit.denied.length;
@@ -146,7 +167,10 @@ export async function importCatalog({ sourceFile, output = resolve(ROOT, 'dist')
     await writeFile(resolve(dataDirectory, stateDescriptor.file), stateBytes);
     await writeFile(resolve(output, 'refresh-report.json'), JSON.stringify({ ...refreshSummary, ...refreshAudit }, null, 2));
   }
-  const rawDescriptor = refresh ? (await buildSteamArchiveSnapshot({ directory: rawArchiveDirectory, previous: previousRawArchive, outputDirectory: dataDirectory })).descriptor : undefined;
+  const rawDescriptor = steamData ? await writeSteamDataArchive({
+    records: (function* () { for (const row of steamData.rows()) yield archiveRecord(row); })(),
+    tagDictionary: steamData.setting('tags') ?? [], outputDirectory: dataDirectory, generatedAt: importedAt
+  }) : refresh ? (await buildSteamArchiveSnapshot({ directory: rawArchiveDirectory, previous: previousRawArchive, outputDirectory: dataDirectory })).descriptor : undefined;
   const retained = await retainPreviousCatalog(previous, dataDirectory, current);
   const manifest = { version: 1, importedAt, fixture, current, previous: retained, sources, coverage, ...(stateDescriptor ? { refreshState: stateDescriptor, refresh: refreshSummary } : {}), ...(rawDescriptor ? { steamArchive: rawDescriptor } : {}) };
   await writeFile(resolve(dataDirectory, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n');
@@ -160,6 +184,7 @@ export async function importCatalog({ sourceFile, output = resolve(ROOT, 'dist')
     browserBrotliMB: +(current.binary.brotli.bytes / 1e6).toFixed(2), browserGzipMB: +(current.binary.gzip.bytes / 1e6).toFixed(2),
     ...(rawDescriptor ? { rawArchiveApps: rawDescriptor.apps, rawArchiveCompressedMB: +(rawDescriptor.bytes / 1048576).toFixed(2) } : {}), fixture, output }, null, 2));
   return { manifest, catalog };
+  } finally { picsClient?.close(); steamData?.close(); }
 }
 
 async function fixtureSources() {
@@ -171,11 +196,13 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   const sourceIndex = process.argv.indexOf('--sources');
   const stateIndex = process.argv.indexOf('--steam-state');
   const limitIndex = process.argv.indexOf('--steam-limit');
+  const dataIndex = process.argv.indexOf('--steam-data');
   importCatalog({ fixture: process.argv.includes('--fixture'), sourceFile: sourceIndex >= 0 ? process.argv[sourceIndex + 1] : undefined,
     ...(process.argv.includes('--refresh-steam') || process.argv.includes('--bootstrap-steam') ? { refresh: true } : {}),
     bootstrap: process.argv.includes('--bootstrap-steam'), steamStateFile: stateIndex >= 0 ? process.argv[stateIndex + 1] : undefined,
     finalizeSteam: process.argv.includes('--finalize-steam'),
     localPreviousDirectory: resolve(ROOT, 'dist'),
+    steamDataFile: dataIndex >= 0 ? process.argv[dataIndex + 1] : undefined,
     ...(limitIndex >= 0 ? { steamLimit: Number(process.argv[limitIndex + 1]) } : {})
   }).catch(error => { console.error(error); process.exitCode = 1; });
 }

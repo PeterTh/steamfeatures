@@ -1,0 +1,11 @@
+PromptFont by Shinmera (Yukari Hafner)
+https://shinmera.com/promptfont
+Based on Xolonium by Severin Meyer.
+
+Unmodified promptfont.woff2 from the official v1.15 release:
+https://codeberg.org/shinmera/promptfont/releases/download/v1.15/promptfont.zip
+WOFF2 SHA-256: 81cf70b36008af0e802de2cca5b8d78fd6e9584f753e89d8d893bbb917480b7d
+Size: 82,856 bytes.
+
+Licensed under the SIL Open Font License 1.1; see PromptFont-LICENSE.txt.
+Included trademarks remain the property of their respective owners.

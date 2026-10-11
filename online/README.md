@@ -4,6 +4,14 @@ For the fixture-based development setup, see the [main README](../README.md#deve
 
 ## Build a full catalog
 
+For the expanded StoreBrowse/PICS collection, including cloud streaming and Steam hardware details, see the [collection reference](../docs/steam-data.md). With the existing catalog and prepared sources, run:
+
+```sh
+npm run collect:steam -- --sources .cache/prepared-sources.json --build
+```
+
+The command resumes its SQLite checkpoint, then builds and verifies the site. It does not deploy it. System requirements are deferred.
+
 The first import downloads the bulk sources and checks released games through Steam:
 
 ```sh
@@ -78,7 +86,7 @@ Normal workflow runs require a completed published catalog. If it is missing or 
 | Setting | Default | Purpose |
 | --- | --- | --- |
 | `STEAM_REFRESH_LIMIT` / `--steam-limit` | `4000` | Existing released games checked per UTC day, shared across runs; range 1–5000 |
-| `STEAM_REQUEST_SPACING_MS` | `2000` | Minimum spacing between Steam requests |
+| `STEAM_REQUEST_SPACING_MS` | `5000` | Pause after each Steam response; full collection requires at least 5000 ms |
 | `PAGES_BASE_URL` | Set by the workflow | HTTPS deployment used to recover published data and compare coverage |
 | `--steam-state <file>` | None | Initial checkpoint when no published state is available |
 | `STEAM_ALLOW_BOOTSTRAP` | `0` in Actions | Prevents automatic full backfills in normal workflow runs |
@@ -91,7 +99,7 @@ The published `data/refresh.<hash>.json.gz` contains saved Steam metadata and sc
 
 Parsed Steam responses are saved before validation in `.cache/steam-responses/`, with their request parameters, timestamps, HTTP status and result codes. The archive includes fields returned by Steam even when the site does not use them. [`readSteamResponseArchive`](scripts/steam-archive.mjs) reads and verifies these files offline.
 
-Each deployment also includes `data/steam-raw.<hash>.json.gz`: each app's latest response, its last successful response if the latest lookup failed, and the latest successful tag dictionary. The next workflow run restores this file before merging new responses. Visitors do not download it or the refresh checkpoint.
+Expanded deployments include `data/steam-raw.<hash>.jsonl.zst`: the latest usable StoreBrowse and PICS payloads per app, explicit fallback facts and the tag dictionary. It uses a single Zstd stream without a trained dictionary. The previous `steam-raw.<hash>.json.gz` format remains readable for migration. The next workflow run restores the archive before merging new responses. Visitors do not download it or the refresh checkpoint.
 
 Actions caches the response journal and uploads it as an artifact with 90-day retention. The published archive keeps the latest per-app data; it is not a complete request history.
 
@@ -110,6 +118,8 @@ Bulk revisions, asset identifiers and checksums are recorded in the manifest. Th
 Unknown values remain distinct from zero, empty lists and absent features. Feature and tag filters require known data, including exclusions. [`normalize.mjs`](scripts/normalize.mjs) defines source normalization; [`features.mjs`](src/features.mjs) defines feature aliases, groups and weights; [`query.mjs`](src/query.mjs) defines filters, URL state, sorting and presets.
 
 [`view-state.mjs`](src/view-state.mjs) adds the optional `highlight=<feature-key>` URL parameter. Highlighting selects one column without changing the query, including when a counting toggle hides that column.
+
+[`feature-presentation.mjs`](src/feature-presentation.mjs) groups each hardware target into one column and hides detailed compatibility flags without discarding collected data. Compatibility filters use `deck`, `machine`, `frame` and `os` URL parameters; `ignore` is the default. Deck/Machine/Frame accept `untested`, `unsupported`, `playable` or `verified`; SteamOS accepts `untested`, `unsupported` or `supported`. Selections combine with AND and work independently of `hw=1`, which controls columns and scoring. Unavailable ratings never satisfy `untested`.
 
 Publication requires at least 50,000 games, 70% known feature data and 30% known reviews. A drop of more than 10% in games, known features, known reviews or known tags against the published catalog blocks the build. Unclassified Steam category IDs also block publication until the feature registry is updated.
 

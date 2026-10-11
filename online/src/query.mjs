@@ -1,9 +1,12 @@
 /** Shared, dependency-free catalog queries for the UI, worker, and Node tests. */
+import { isFeatureKnown } from './extra-features.mjs';
+import { presentationFeatures, featureColumns, compatibilityTargets } from './feature-presentation.mjs';
 export const PAGE_SIZE = 50;
 export const DEFAULT_QUERY = Object.freeze({
   q: '', has: Object.freeze([]), not: Object.freeze([]),
   hasTags: Object.freeze([]), notTags: Object.freeze([]), minReviews: 20,
-  includeEarlyAccess: false, includeAccessibility: false, includeMultiplayer: false,
+  includeEarlyAccess: false, includeAccessibility: false, includeMultiplayer: false, includeHardware: false,
+  compatibility: Object.freeze(Object.fromEntries(compatibilityTargets.map(target => [target.key, 'ignore']))),
   release: 'released', releaseFrom: '', releaseTo: '', sort: 'score-desc', page: 1,
 });
 
@@ -93,6 +96,7 @@ function featureList(value, index, label) {
   for (const entry of entries) {
     const feature = typeof entry === 'number' ? index.byId.get(entry) : index.byKey.get(String(entry).trim());
     if (!feature) throw new Error(`Unknown ${label} feature: ${String(entry)}.`);
+    if (feature.hardware) throw new Error(`Use a compatibility filter for ${feature.name}.`);
     ids.add(feature.id);
   }
   return [...ids].sort((a, b) => a - b);
@@ -118,6 +122,21 @@ function tagList(value, index, label) {
     names.add(entry);
   }
   return [...names].sort();
+}
+
+function compatibilityFilters(value) {
+  const source = value ?? {};
+  if (typeof source !== 'object' || Array.isArray(source)) throw new Error('Invalid compatibility filters.');
+  for (const key of Object.keys(source)) {
+    if (!compatibilityTargets.some(target => target.key === key)) throw new Error(`Unknown compatibility target: ${key}.`);
+  }
+  return Object.fromEntries(compatibilityTargets.map(target => {
+    const rating = source[target.key] === undefined ? 'ignore' : source[target.key];
+    if (rating !== 'ignore' && !target.ratings.some(option => option.value === rating)) {
+      throw new Error(`Invalid ${target.name} compatibility rating: ${String(rating)}.`);
+    }
+    return [target.key, rating];
+  }));
 }
 
 /** has/not accept canonical numeric IDs or stable feature keys; output uses IDs. */
@@ -149,6 +168,8 @@ export function normalizeQuery(input = {}, features, tags = []) {
     includeEarlyAccess: booleanValue(source.includeEarlyAccess, DEFAULT_QUERY.includeEarlyAccess, 'Early Access'),
     includeAccessibility: booleanValue(source.includeAccessibility, DEFAULT_QUERY.includeAccessibility, 'Accessibility'),
     includeMultiplayer: booleanValue(source.includeMultiplayer, DEFAULT_QUERY.includeMultiplayer, 'Multiplayer'),
+    includeHardware: booleanValue(source.includeHardware, DEFAULT_QUERY.includeHardware, 'Steam hardware'),
+    compatibility: compatibilityFilters(source.compatibility),
     release, releaseFrom, releaseTo, sort,
     page: wholeNumber(source.page, DEFAULT_QUERY.page, 1, 'Page'),
   };
@@ -168,7 +189,8 @@ export function parseQuery(search = '', features, tags = []) {
   return normalizeQuery({
     q: single('q'), has: split('has'), not: split('not'), minReviews: single('minReviews'),
     hasTags: params.getAll('tag'), notTags: params.getAll('notTag'),
-    includeEarlyAccess: single('ea'), includeAccessibility: single('a11y'), includeMultiplayer: single('mp'),
+    includeEarlyAccess: single('ea'), includeAccessibility: single('a11y'), includeMultiplayer: single('mp'), includeHardware: single('hw'),
+    compatibility: Object.fromEntries(compatibilityTargets.map(target => [target.key, single(target.parameter)])),
     release: single('release'), releaseFrom: single('releaseFrom'), releaseTo: single('releaseTo'),
     sort: single('sort'), page: single('page'),
   }, features, tags);
@@ -188,6 +210,10 @@ export function serializeQuery(input, features, tags = []) {
   if (query.includeEarlyAccess) params.set('ea', '1');
   if (query.includeAccessibility) params.set('a11y', '1');
   if (query.includeMultiplayer) params.set('mp', '1');
+  if (query.includeHardware) params.set('hw', '1');
+  for (const target of compatibilityTargets) {
+    if (query.compatibility[target.key] !== 'ignore') params.set(target.parameter, query.compatibility[target.key]);
+  }
   if (query.release !== DEFAULT_QUERY.release) params.set('release', query.release);
   if (query.releaseFrom) params.set('releaseFrom', query.releaseFrom);
   if (query.releaseTo) params.set('releaseTo', query.releaseTo);
@@ -233,6 +259,8 @@ export function prepareCatalog(catalog) {
   if (!catalog || typeof catalog !== 'object' || !Array.isArray(catalog.games)) throw new Error('Invalid game catalog.');
   if (preparedCatalogs.has(catalog)) return preparedCatalogs.get(catalog);
   const index = featureIndex(catalog.features);
+  const features = presentationFeatures(catalog.features);
+  const countedIds = new Set(features.map(feature => feature.id));
   const tags = catalog.tags === undefined ? [] : catalog.tags;
   const tagsByName = tagIndex(tags);
   const decodedTagIds = decodeTagIndex(catalog, tags.length);
@@ -243,6 +271,7 @@ export function prepareCatalog(catalog) {
     if (!Number.isSafeInteger(game.id) || game.id <= 0 || ids.has(game.id)) throw new Error('The catalog contains invalid or duplicate game IDs.');
     ids.add(game.id);
     const featureIds = [...new Set(game.featureIds ?? [])];
+    if (game.knownFeatureGroups !== undefined && (!Array.isArray(game.knownFeatureGroups) || game.knownFeatureGroups.some(value => typeof value !== 'string'))) throw new Error(`Invalid feature knowledge on game ${game.id}.`);
     if (featureIds.some(id => !index.byId.has(id))) throw new Error(`Unknown feature in game ${game.id}.`);
     if (game.tagIds != null && !Array.isArray(game.tagIds)) throw new Error(`Invalid tag membership in game ${game.id}.`);
     const tagIds = decodedTagIds ? decodedTagIds[rowIndex] : [...new Set(game.tagIds ?? [])].sort((a, b) => a - b);
@@ -251,13 +280,14 @@ export function prepareCatalog(catalog) {
     if (tagDataKnown) knownTagCount += 1;
     for (const id of tagIds) tagCounts[id] += 1;
     const known = game.featureDataKnown === true;
-    // Precompute all four toggle combinations once; sorting never sums features.
-    const counts = known ? [0, 0, 0, 0] : [null, null, null, null];
-    const scores = known ? [0, 0, 0, 0] : [null, null, null, null];
+    // Precompute all eight toggle combinations once; sorting never sums features.
+    const counts = Array(8).fill(known ? 0 : null);
+    const scores = Array(8).fill(known ? 0 : null);
     if (known) for (const id of featureIds) {
+      if (!countedIds.has(id)) continue;
       const feature = index.byId.get(id);
-      const group = (feature.accessibility ? 1 : 0) | (feature.multiplayer ? 2 : 0);
-      for (let mask = 0; mask < 4; mask += 1) if ((group & mask) === group) {
+      const group = (feature.accessibility ? 1 : 0) | (feature.multiplayer ? 2 : 0) | (feature.hardware ? 4 : 0);
+      for (let mask = 0; mask < 8; mask += 1) if ((group & mask) === group) {
         counts[mask] += 1;
         scores[mask] += feature.weight ?? 1;
       }
@@ -272,7 +302,7 @@ export function prepareCatalog(catalog) {
       release: knownReleaseDate(game.releaseISO),
     };
   });
-  const prepared = { [preparedMarker]: true, features: catalog.features, tags, tagsByName, tagCounts, knownTagCount, games };
+  const prepared = { [preparedMarker]: true, features, tags, tagsByName, tagCounts, knownTagCount, games };
   preparedCatalogs.set(catalog, prepared);
   return prepared;
 }
@@ -290,16 +320,18 @@ export function runQuery(catalog, input = DEFAULT_QUERY) {
   const query = normalizeQuery(input, prepared.features, prepared.tags);
   const requiredTags = query.hasTags.map(tag => prepared.tagsByName.get(tag));
   const excludedTags = query.notTags.map(tag => prepared.tagsByName.get(tag));
+  const requiredRatings = compatibilityTargets.flatMap(target => target.ratings.filter(rating => rating.value === query.compatibility[target.key]).map(rating => rating.id));
+  const constrainedFeatures = prepared.features.filter(feature => query.has.includes(feature.id) || query.not.includes(feature.id));
   const [sortField, sortDirection] = query.sort.split('-');
   const direction = sortDirection === 'asc' ? 1 : -1;
   const title = query.q.toLocaleLowerCase('en');
   const releaseFrom = resolveReleaseBound(query.releaseFrom);
   const releaseTo = resolveReleaseBound(query.releaseTo, true);
-  const mask = (query.includeAccessibility ? 1 : 0) | (query.includeMultiplayer ? 2 : 0);
+  const mask = (query.includeAccessibility ? 1 : 0) | (query.includeMultiplayer ? 2 : 0) | (query.includeHardware ? 4 : 0);
   const count = row => row.counts[mask];
   const score = row => row.scores[mask];
-  const visibleFeatures = prepared.features.filter(feature =>
-    (query.includeAccessibility || !feature.accessibility) && (query.includeMultiplayer || !feature.multiplayer));
+  const visibleFeatures = featureColumns(prepared.features).filter(feature =>
+    (query.includeAccessibility || !feature.accessibility) && (query.includeMultiplayer || !feature.multiplayer) && (query.includeHardware || !feature.hardware));
   const matches = prepared.games.filter(row => {
     const game = row.game;
     if (!query.includeEarlyAccess && game.earlyAccess !== false) return false;
@@ -308,9 +340,10 @@ export function runQuery(catalog, input = DEFAULT_QUERY) {
     if (releaseTo && (row.release === null || row.release > releaseTo)) return false;
     if (title && !row.title.includes(title)) return false;
     if (query.minReviews > 0 && (row.reviews === null || row.reviews < query.minReviews)) return false;
-    if ((query.has.length || query.not.length) && game.featureDataKnown !== true) return false;
+    if (constrainedFeatures.some(feature => !isFeatureKnown(game, feature))) return false;
     if (query.has.some(id => !game.featureIds.includes(id))) return false;
     if (query.not.some(id => game.featureIds.includes(id))) return false;
+    if (requiredRatings.some(id => !game.featureIds.includes(id))) return false;
     if ((requiredTags.length || excludedTags.length) && !game.tagDataKnown) return false;
     if (requiredTags.some(id => !game.tagIds.includes(id))) return false;
     if (excludedTags.some(id => game.tagIds.includes(id))) return false;
@@ -353,6 +386,6 @@ export function runQuery(catalog, input = DEFAULT_QUERY) {
     query: { ...query, page }, total, page, pageCount, rows,
     columns: visibleFeatures.map(feature => feature.id),
     maxScore: visibleFeatures.reduce((totalScore, feature) => totalScore + Math.max(feature.weight ?? 1, 0), 0),
-    minScore: visibleFeatures.reduce((totalScore, feature) => totalScore + Math.min(feature.weight ?? 1, 0), 0),
+    minScore: visibleFeatures.reduce((totalScore, feature) => totalScore + (feature.minWeight ?? Math.min(feature.weight ?? 1, 0)), 0),
   };
 }

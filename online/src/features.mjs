@@ -1,3 +1,5 @@
+import { extraFeatures } from './extra-features.mjs';
+
 const stableKeys = {
   "1": "multi-player",
   "2": "single-player",
@@ -133,4 +135,7 @@ export const features = [
   f([82], 'Contrast Controls', 'Accessibility', 'contrast', 'CONT', 'Players can adjust visual contrast.', true)
 ];
 const compactLabels = { FULL: 'ALL', PART: 'PAR', CARD: 'TC', SAVE: 'SAV', STAT: 'ST', RANK: 'LB', TIME: 'TL', TURN: 'TN', EDIT: 'ED', COMM: 'VO', JOIN: 'CO', ONLY: 'REQ', ITEM: 'ITM', SIZE: 'TXT', MENU: 'NAR', DIFF: 'LVL', PACE: 'OWN', CONT: 'CON' };
+features.push(...extraFeatures);
+const groupOrder = ['Play modes', 'Controllers', 'Steam features', 'Creation', 'Remote Play', 'Cloud streaming', 'Display & VR', 'Accessibility', 'Steam hardware'];
+features.sort((a, b) => groupOrder.indexOf(a.group) - groupOrder.indexOf(b.group));
 for (const feature of features) feature.short = compactLabels[feature.short] || feature.short;

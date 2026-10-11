@@ -1,7 +1,8 @@
 import { parseQuery, serializeQuery } from './query.mjs';
+import { featureColumns } from './feature-presentation.mjs';
 
 function validHighlight(value, features) {
-  return typeof value === 'string' && features.some(feature => feature.key === value) ? value : null;
+  return typeof value === 'string' && featureColumns(features).some(feature => feature.key === value) ? value : null;
 }
 
 /** Column highlighting is URL state, independent of the catalog query. */

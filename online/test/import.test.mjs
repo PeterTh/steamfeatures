@@ -16,7 +16,7 @@ test('fixture import emits equivalent binary, Brotli, gzip, JSON, licenses and p
     const { catalog, manifest } = await importCatalog({ output, fixture: true });
     assert.equal(catalog.fixture, true);
     assert.equal(catalog.games.length, 5);
-    assert.equal(catalog.features.length, 62);
+    assert.equal(catalog.features.length, 81);
     assert.equal(catalog.features.find(feature => feature.id === 23).weight, 3);
     assert.equal(catalog.features.find(feature => feature.id === 35).weight, -1);
     assert.equal(catalog.features.find(feature => feature.id === 1).multiplayer, true);

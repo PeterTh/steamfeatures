@@ -69,7 +69,11 @@ test('legacy VR Support is omitted without inventing another VR feature', () => 
 });
 
 test('feature registry preserves weighting and multiplayer classification through import', () => {
-  const { features: copied } = buildFeatureCatalog(features, [], new Set());
+  const { features: all } = buildFeatureCatalog(features, [], new Set());
+  assert.equal(all.length, 81);
+  assert.equal(all.find(feature => feature.key === 'no-keyboard-mouse').weight, -1);
+  assert.equal(all.filter(feature => feature.hardware).length, 15);
+  const copied = all.filter(feature => !feature.knowledgeGroup);
   assert.equal(copied.length, 62);
   assert.equal(copied.filter(feature => !feature.accessibility).length, 42);
   assert.deepEqual(copied.filter(feature => feature.multiplayer).map(feature => feature.id).sort((a, b) => a - b), [1, 8, 9, 20, 24, 27, 32, 36, 37, 38, 39, 44, 47, 48, 49, 72, 73]);

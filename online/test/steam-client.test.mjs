@@ -12,7 +12,7 @@ function clock() {
   return { now: () => time, sleep: async ms => { waits.push(ms); time += ms; }, waits };
 }
 
-test('GetItems batches at 100, deduplicates IDs, preserves raw unavailable items and requests only needed fields', async () => {
+test('GetItems batches at 100, deduplicates IDs and requests the complete static collection profile', async () => {
   const calls = [];
   const timer = clock();
   const client = createSteamClient({ ...timer, fetchImpl: async (url, options) => {
@@ -29,7 +29,10 @@ test('GetItems batches at 100, deduplicates IDs, preserves raw unavailable items
   assert.deepEqual(calls[0].input.context, { language: 'english', country_code: 'US' });
   assert.deepEqual(calls[0].input.data_request, {
     include_release: true, include_basic_info: true, include_reviews: true,
-    include_tag_count: 100, include_best_purchase_option: false
+    include_tag_count: 100, include_best_purchase_option: false,
+    include_platforms: true, include_extra_details: true, include_supported_languages: true,
+    include_links: true, include_ratings: true, include_assets: true, include_full_description: true,
+    include_screenshots: true, include_trailers: true, include_assets_without_overrides: true
   });
   assert.equal(calls[0].options.method, 'GET');
   assert.equal(new URL(calls[0].url).hostname, 'api.steampowered.com');
