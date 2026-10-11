@@ -32,7 +32,7 @@ The complete returned StoreBrowse item and public appinfo are retained so future
 
 - Cloud category flags describe Steam's advertised participation/configuration. They do not guarantee current GeForce NOW availability in every region. Dynamic Cloud Sync describes configuration, not verified save reliability; it is independent of the ordinary Steam Cloud badge.
 - Deck, Machine and Frame ratings use 0 = untested, 1 = unsupported, 2 = playable, 3 = verified. Frame ratings concern standalone execution on the headset, not streaming from another PC. SteamOS uses 0 = untested, 1 = unsupported, 2 = supported. An explicit untested rating differs from an unavailable lookup.
-- Compatibility tests retain their tokens and display values, alongside input, launcher, text, internet, frame-limiter, HDR and runtime configuration. These details remain in the collected data and are excluded from the interface, filters, feature counts and scores.
+- Compatibility tests retain their tokens and display values, alongside input, launcher, text, internet, frame-limiter, HDR and runtime configuration. The browser catalog includes individual visible test results and selected configuration flags; test timestamps, build IDs and other raw fields remain in the full archive. Clicking a tested hardware rating opens its game/device details, with readable notes, limitations first, and equivalent test/configuration notes combined. Details remain excluded from columns, filters, feature counts and scores. Untested and unavailable ratings have no details action.
 - Hardware columns and scoring are opt-in (`hw=1`). Each target has one column: `?` untested/unavailable, a red minus unsupported, a yellow check playable and a green check verified/supported. Tooltips distinguish untested from unavailable data. Verified/supported scores +1, unsupported −1, playable/untested 0. Each explicit overall rating counts once. No keyboard/mouse support and In-App Purchases use the same red minus for their −1 penalties.
 - The separate **Filter by compatibility** panel selects an exact rating for each target, independent of column visibility. Ignore leaves that target unrestricted; selections across targets combine with AND. `deck`, `machine`, `frame` and `os` URL parameters preserve the selections. Missing ratings do not match Untested. SteamOS offers Supported instead of Playable/Verified. Hardware ratings are excluded from the ordinary feature selector.
 - Dynamic Cloud Sync appears next to Steam Cloud; GeForce NOW is the fourth Remote Play entry. Both score +1. Generic cloud-streaming category 45 is retained in the data but contributes no separate column, filter, count or score.
@@ -102,7 +102,7 @@ The verified 199,542-app snapshot includes retained fallback fields and achieves
 | Browser binary, uncompressed | 16,945,551 | 16.95 MB |
 | Browser binary, Brotli | 5,195,012 | 5.20 MB |
 | Browser binary, gzip | 6,117,259 | 6.12 MB |
-| Complete generated site, including archives | 549,914,453 | 549.91 MB |
+| Complete generated site, including archives | 549,928,771 | 549.93 MB |
 | Local SQLite checkpoint | 3,005,304,832 | 3.005 GB |
 
 Allow additional disk space for SQLite's transaction journal, the prior deployment, a local archive copy and build staging. Production verification checks archive checksums, every JSONL record, sorted app IDs and counts, refresh completeness, and equivalence between the browser's JSON and binary catalogs.

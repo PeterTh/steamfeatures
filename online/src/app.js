@@ -1,6 +1,7 @@
 import { DEFAULT_QUERY, PRESETS, normalizeQuery, parseQuery, serializeQuery } from './query.mjs';
 import { parseView, serializeView } from './view-state.mjs';
 import { featureColumns, columnState, compatibilityTargets } from './feature-presentation.mjs';
+import { compatibilityDetails } from './compatibility-details.mjs';
 
 const $ = id => document.getElementById(id);
 const fmt = n => n == null ? 'Unknown' : new Intl.NumberFormat('en-US').format(n);
@@ -15,6 +16,7 @@ let highlightedFeature = null, revealHighlightPending = false;
 let requestedSearch = null, activeQueryRequest = 0;
 let layoutFrame;
 let dateDraftDirty = false;
+let compatibilityAnchor = null;
 
   const paths = {
     warning: '<path d="M12 3 2 21h20ZM12 9v5m0 3v1"/>',
@@ -82,6 +84,7 @@ let dateDraftDirty = false;
   function link(url, label, className, text) { const a = element('a', className, text); a.href = url; a.target = '_blank'; a.rel = 'noopener noreferrer'; a.setAttribute('aria-label', label); return a; }
 
   function render() {
+    if ($('compatibility-dialog').open) $('compatibility-dialog').close();
     hideTip(); highlightColumn(null); columnCells = new Map();
     view = latestResult.rows.map(g => ({ ...g, featureSet: new Set(g.featureIds) })); games = new Map(view.map(g => [g.id,g])); matching = latestResult.total; visibleFeatures = latestResult.columns.map(id => columns.get(id));
     $('legend-listed-label').textContent = state.includeHardware ? 'Listed / Verified' : 'Listed';
@@ -128,7 +131,14 @@ let dateDraftDirty = false;
       for (const f of visibleFeatures) {
         const status = columnState(g, f), td = element('td', 'feature-cell' + (f.group !== group ? ' group-start' : ''));
         td.dataset.feature = f.id; td.dataset.supported = status.supported; td.dataset.status = status.status; td.setAttribute('headers', `game-${g.id} feature-${f.id}`); td.title = `${f.name}: ${status.label}`;
-        const mark = element('span', status.className, status.mark); mark.setAttribute('aria-hidden', 'true'); td.append(mark, element('span', 'sr-only', status.label)); tr.append(td); columnCells.get(f.id).push(td); group = f.group;
+        const mark = element('span', status.className, status.mark); mark.setAttribute('aria-hidden', 'true');
+        if (f.statuses && !['unknown', 'untested'].includes(status.status)) {
+          const button = element('button', 'compatibility-button'); button.type = 'button'; button.dataset.compatibility = f.id; button.dataset.gameId = g.id;
+          button.setAttribute('aria-label', `${f.name}: ${status.label}. Compatibility details for ${g.name}`);
+          button.setAttribute('aria-haspopup', 'dialog'); button.setAttribute('aria-controls', 'compatibility-dialog');
+          td.title += ' · Click for compatibility details'; button.append(mark); td.append(button);
+        } else td.append(mark, element('span', 'sr-only', status.label));
+        tr.append(td); columnCells.get(f.id).push(td); group = f.group;
       }
       rows.append(tr);
     }
@@ -221,6 +231,32 @@ let dateDraftDirty = false;
     old?.focus({ preventScroll: true }); suppressFocusTip = false;
   }
   function addPair(dl, label, value) { dl.append(element('dt', '', label), element('dd', '', value)); }
+  function showCompatibility(anchor) {
+    const game = games.get(Number(anchor.dataset.gameId)), column = columns.get(Number(anchor.dataset.compatibility));
+    if (!game || !column?.statuses) return;
+    hideTip(); compatibilityAnchor = anchor;
+    const status = columnState(game, column), content = $('compatibility-content');
+    $('compatibility-title').replaceChildren(icon(column.icon), document.createTextNode(column.name + ' compatibility'));
+    const rating = element('p', 'compatibility-rating'), mark = element('span', status.className, status.mark);
+    mark.setAttribute('aria-hidden', 'true'); rating.append(mark, document.createTextNode(status.label));
+    content.replaceChildren(element('h3', 'compatibility-game', game.name), rating);
+    const details = compatibilityDetails(game, column.key, data.compatibilityDetails ?? []);
+    for (const [tone, title, symbol] of [['warning', 'Things to know', '!'], ['pass', 'Passed checks', '✓'], ['info', 'Additional details', 'i']]) {
+      const notes = details.filter(detail => detail.tone === tone);
+      if (!notes.length) continue;
+      const section = element('section', 'compatibility-section ' + tone), list = element('ul', 'compatibility-notes');
+      section.append(element('h4', '', title));
+      for (const note of notes) {
+        const item = element('li'), badge = element('span', 'compatibility-note-icon', symbol); badge.setAttribute('aria-hidden', 'true');
+        item.append(badge, element('span', '', note.text)); list.append(item);
+      }
+      section.append(list); content.append(section);
+    }
+    if (!details.length) content.append(element('p', 'compatibility-empty', 'No compatibility details are available.'));
+    const store = link(`https://store.steampowered.com/app/${game.id}/`, game.name + ' on Steam', 'compatibility-store', 'View on Steam');
+    store.append(icon('external')); content.append(store);
+    $('compatibility-dialog').showModal(); content.scrollTop = 0;
+  }
   function showTip(anchor, pinned = false) {
     if (tipPinned && !pinned) return;
     if (pinned && tipPinned && tipAnchor === anchor) { hideTip(); return; }
@@ -589,6 +625,18 @@ $('about').prepend(icon('info'));
 $('share').prepend(icon('link'));
 $('about').addEventListener('click', () => { hideTip(); $('about-dialog').showModal(); $('about-content').scrollTop = 0; });
 $('about-close').addEventListener('click', () => $('about-dialog').close());
+$('compatibility-close').addEventListener('click', () => $('compatibility-dialog').close());
+$('compatibility-dialog').addEventListener('keydown', e => {
+  if (e.key !== 'Tab' || e.altKey || e.ctrlKey || e.metaKey) return;
+  const stops = [...e.currentTarget.querySelectorAll('button, a[href], [tabindex="0"]')];
+  const first = stops[0], last = stops.at(-1);
+  if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+  else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+});
+$('compatibility-dialog').addEventListener('close', () => {
+  if (compatibilityAnchor?.isConnected) compatibilityAnchor.focus({ preventScroll: true });
+  compatibilityAnchor = null;
+});
 $('faq-example').addEventListener('click', e => {
   if (!ready || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
   const target = new URL(e.currentTarget.href);
@@ -599,7 +647,7 @@ $('faq-example').addEventListener('click', e => {
   $('about-dialog').close();
   setFilters(next);
 });
-$('about-dialog').addEventListener('click', e => {
+for (const id of ['about-dialog', 'compatibility-dialog']) $(id).addEventListener('click', e => {
   if (e.target !== e.currentTarget) return;
   const rect = e.currentTarget.getBoundingClientRect();
   if (e.clientX < rect.left || e.clientX > rect.right || e.clientY < rect.top || e.clientY > rect.bottom) e.currentTarget.close();
@@ -615,7 +663,10 @@ window.addEventListener('popstate', () => { if (ready) loadURL(); });
   $('matrix').addEventListener('pointerleave', e => { highlightColumn(null); if (!$('tooltip').contains(e.relatedTarget)) scheduleTipHide(); });
   $('matrix').addEventListener('focusin', e => { const anchor = e.target.closest('[data-tip]'); if (anchor && !suppressFocusTip) showTip(anchor); const cell = e.target.closest('[data-feature]'); highlightColumn(cell ? Number(cell.dataset.feature) : null); });
   $('matrix').addEventListener('focusout', e => { if (!$('tooltip').contains(e.relatedTarget)) { highlightColumn(null); scheduleTipHide(); } });
-  $('matrix').addEventListener('click', e => { const anchor = e.target.closest('button[data-tip]'); if (anchor) showTip(anchor, true); });
+  $('matrix').addEventListener('click', e => {
+    const rating = e.target.closest('button[data-compatibility]'); if (rating) { showCompatibility(rating); return; }
+    const anchor = e.target.closest('button[data-tip]'); if (anchor) showTip(anchor, true);
+  });
   $('tooltip').addEventListener('pointerenter', () => clearTimeout(tipHideTimer));
   $('tooltip').addEventListener('pointerleave', e => { if (!tipAnchor?.contains(e.relatedTarget)) scheduleTipHide(); });
   $('tooltip').addEventListener('focusin', () => clearTimeout(tipHideTimer));

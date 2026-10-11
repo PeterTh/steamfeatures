@@ -27,4 +27,6 @@ Run `highlight-checks.js` in the same way for column selection, URL persistence,
 
 `steam-enrichment-checks.js` checks cloud flag ordering, Dynamic Cloud Sync, negative-score badges, achievement counts, the four opt-in hardware columns and their rating symbols. It verifies the dedicated compatibility dropdowns, exact rating matches, combinations, chips, URL/history/reset behavior, unavailable-data handling, embedded icons, and layouts from 320 to 1440 pixels. It needs an enriched catalog with examples of these flags and all four Deck ratings.
 
-Run all five harnesses in Firefox and Chromium.
+`compatibility-details-checks.js` opens real Deck, Machine, Frame and SteamOS ratings and checks device-specific notes, duplicate removal, keyboard focus and dismissal, unchanged filters/scores, and scrolling mobile dialogs. It uses Portal 2, Hotline Miami, Halo Infinite and PUBG from the enriched catalog.
+
+Run all six harnesses in Firefox and Chromium.

@@ -1,6 +1,7 @@
 import { prepareCatalog, runQuery } from './query.mjs';
 import { decodeBinaryCatalog } from './catalog-binary.mjs';
 import { validateBinaryDescriptor, BINARY_MAX_BYTES, COMPRESSED_MAX_BYTES } from './catalog-descriptor.mjs';
+import { isCompatibilityDetail } from './compatibility-details.mjs';
 
 const MANIFEST_MAX_BYTES = 2 * 1024 * 1024;
 
@@ -205,6 +206,7 @@ if (typeof self !== 'undefined' && typeof self.addEventListener === 'function') 
         prepared = prepareCatalog(catalog);
         self.postMessage({
           type: 'ready', gameCount: prepared.games.length, features: prepared.features,
+          compatibilityDetails: catalog.features.filter(feature => isCompatibilityDetail(feature)),
           tags: prepared.tags, tagCounts: prepared.tagCounts, knownTagCount: prepared.knownTagCount,
           importedAt: catalog.importedAt ?? manifest?.importedAt ?? null,
           sources: catalog.sources ?? manifest?.sources ?? {},

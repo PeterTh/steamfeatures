@@ -6,6 +6,8 @@ import { loadCatalog } from '../src/filter-worker.js';
 import { BINARY_FORMAT } from '../src/catalog-binary.mjs';
 import { BINARY_MAX_BYTES, COMPRESSED_MAX_BYTES } from '../src/catalog-descriptor.mjs';
 import { encodeBinaryCatalog } from '../scripts/catalog-binary.mjs';
+import { features } from '../src/features.mjs';
+import { normalizeSteamEnrichment } from '../scripts/steam-enrichment.mjs';
 
 const catalog = { version: 1, importedAt: '2026-10-08T00:00:00Z', features: [], games: [] };
 const bytes = Buffer.from(JSON.stringify(catalog));
@@ -325,6 +327,38 @@ test('worker ready includes global tag frequencies and queries keep row tag indi
     await onMessage({ data: { type: 'query', requestId: 9, query: { hasTags: ['Action'] } } });
     assert.equal(messages[4].result.total, 1);
     assert.deepEqual(messages[4].result.rows[0].tagIds, [0, 1]);
+  } finally {
+    if (oldSelf === undefined) delete globalThis.self;
+    else globalThis.self = oldSelf;
+  }
+});
+
+test('worker exposes compatibility notes separately from scoring and filtering features', async () => {
+  const oldSelf = globalThis.self;
+  let onMessage;
+  const messages = [];
+  globalThis.self = {
+    addEventListener(type, listener) { if (type === 'message') onMessage = listener; },
+    postMessage(message) { messages.push(message); },
+  };
+  try {
+    await import('../src/filter-worker.js?compatibility-worker-message-test');
+    const registry = new Map(features.map(feature => [feature.id, feature]));
+    const details = normalizeSteamEnrichment({ id: 1, appinfo: { common: { steam_deck_compatibility: {
+      category: '3', tests: [{ display: '4', token: '#SteamDeckVerified_TestResult_InterfaceTextIsLegible' }],
+    } } } }, registry);
+    const note = [...registry.values()].find(feature => feature.knowledgeGroup === 'steam-deck-tests');
+    await onMessage({ data: { type: 'init', catalog: { version: 1, features: [...registry.values()], games: [
+      { id: 1, name: 'Game', ...details, featureDataKnown: true, reviews: 100, earlyAccess: false, releaseStatus: 'released' },
+    ] } } });
+    assert.equal(messages[0].type, 'ready');
+    assert.deepEqual(messages[0].compatibilityDetails, [note]);
+    assert.equal(messages[0].features.some(feature => feature.id === note.id), false);
+    await onMessage({ data: { type: 'query', requestId: 1, query: { includeHardware: true } } });
+    const row = messages[1].result.rows[0];
+    assert.ok(row.featureIds.includes(note.id));
+    assert.equal(row.score, 1);
+    assert.equal(row.count, 1);
   } finally {
     if (oldSelf === undefined) delete globalThis.self;
     else globalThis.self = oldSelf;
