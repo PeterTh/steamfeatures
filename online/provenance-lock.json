@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "importedAt": "2026-10-12T09:52:55.430Z",
+  "importedAt": "2026-10-12T12:00:59.014Z",
   "fixture": false,
   "sources": {
     "apps": {
@@ -28,7 +28,7 @@
       "country": "US",
       "language": "english",
       "reviews": "All-language Steam-purchase reviews",
-      "refreshedAt": "2026-10-12T09:52:55.430Z"
+      "refreshedAt": "2026-10-12T12:00:59.014Z"
     }
   },
   "coverage": {
@@ -47,27 +47,27 @@
     "sourceShards": 1769
   },
   "catalog": {
-    "catalog": "catalog.aaa4f2d9f936654c.json",
-    "compressedCatalog": "catalog.aaa4f2d9f936654c.json.gz",
-    "sha256": "aaa4f2d9f936654c5f82a99692f687c7dc6cd297da78f330340be1888ceaee2f",
-    "gzipSha256": "6b36658439494dd1f0111d3027c222d67e9482320479e781bda2d99476fe250f",
-    "bytes": 155729222,
-    "gzipBytes": 12006145,
-    "importedAt": "2026-10-12T09:52:55.430Z",
+    "catalog": "catalog.c5d34973708876ce.json",
+    "compressedCatalog": "catalog.c5d34973708876ce.json.gz",
+    "sha256": "c5d34973708876ce2a09ad57eb57f0635fc8d9faaa67876e946d1e4eaad24270",
+    "gzipSha256": "e074ef34d3f3ec1e2774e18a99025fbb07931d72927443e2aeca27720442bb94",
+    "bytes": 155729215,
+    "gzipBytes": 12006136,
+    "importedAt": "2026-10-12T12:00:59.014Z",
     "binary": {
       "format": "steam-feature-atlas-binary-v1",
-      "file": "catalog.c59efebb57453951.bin",
-      "sha256": "c59efebb57453951dcb2156b3507cebd4c23c3854cbc8bff4c1fdf32a52742da",
-      "bytes": 18973957,
+      "file": "catalog.cfded922327b9369.bin",
+      "sha256": "cfded922327b93699e1776d585694a6da44c40bf5e3d7eed24ff3aff46eeb5cc",
+      "bytes": 18973950,
       "gzip": {
-        "file": "catalog.c59efebb57453951.bin.gz",
-        "sha256": "5ecb4392d82bfe181369ac5ab1938fe2f701ee5270893f0437b346d9d8f250cc",
-        "bytes": 6499061
+        "file": "catalog.cfded922327b9369.bin.gz",
+        "sha256": "0d327ec26d1d65c3336522d1c67488adc99cbb0d37df75f0c06de5f75ed085bb",
+        "bytes": 6499057
       },
       "brotli": {
-        "file": "catalog.c59efebb57453951.bin.br",
-        "sha256": "40e7280a8cd1f30ccda3da6f7490400173aeebfe150f11b4e7894b109aceee61",
-        "bytes": 5528477
+        "file": "catalog.cfded922327b9369.bin.br",
+        "sha256": "9199e4ecefe9dc23f8381b4eca29999a57dd71538be4a72235e113462fb17093",
+        "bytes": 5528016
       }
     }
   },
@@ -79,21 +79,21 @@
   "refresh": {
     "enabled": true,
     "existingLimit": 4000,
-    "lastRunAt": "2026-10-12T09:52:55.430Z",
+    "lastRunAt": "2026-10-12T12:00:59.014Z",
     "bootstrapComplete": true,
     "checkedGames": 195657,
-    "discovered": 1609,
-    "refreshed": 4000,
+    "discovered": 0,
+    "refreshed": 0,
     "failures": 0,
-    "requests": 43,
+    "requests": 1,
     "unresolvedReleased": 0,
     "deniedReleased": 2075
   },
   "steamArchive": {
     "format": "steam-feature-atlas-raw-v2",
-    "file": "steam-raw.19ac69b5780fd10b.jsonl.zst",
-    "sha256": "19ac69b5780fd10b0db7a91f26d22715223d9a52fbda1e0d6fb4b9e04c159cfe",
-    "bytes": 356442569,
+    "file": "steam-raw.eda6e6a1fd902c3d.jsonl.zst",
+    "sha256": "eda6e6a1fd902c3d589cb64551133b2395191114f197649090d944971f5de15f",
+    "bytes": 356400863,
     "uncompressedBytes": 2529944396,
     "apps": 199560,
     "successfulApps": 196245,
