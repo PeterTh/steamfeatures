@@ -1,25 +1,25 @@
 {
   "version": 1,
-  "importedAt": "2026-10-11T04:50:21.078Z",
+  "importedAt": "2026-10-12T09:52:55.430Z",
   "fixture": false,
   "sources": {
     "apps": {
       "repository": "https://github.com/BlueBoxWare/steamdb",
-      "revision": "ebbb099ddaed1bf5c7b6cb5a4b04dd3da4dbb0b0",
-      "publishedAt": "2026-10-07T16:51:44Z",
+      "revision": "d072b695ecd62b8b3ac3cc7e1e330e647463b87c",
+      "publishedAt": "2026-10-11T15:54:39Z",
       "license": "MIT",
-      "sha256": "d4852655387c9f4d6fd7882a8dd56da1d373dc14b05e528e6d21fa4433c821a5",
-      "shards": 1756
+      "sha256": "ff583f764400b22fd393ed2e95403d5b8cecc38b17ca331e746f508e7c9177ae",
+      "shards": 1769
     },
     "reviews": {
       "repository": "https://github.com/leinstay/steamdb",
-      "revision": "54b8757b3f5ce352379a7baae3ada33cd1ccbb58",
-      "release": "2026-10-07",
-      "releaseId": 406256283,
-      "assetId": 620147660,
-      "url": "https://github.com/leinstay/steamdb/releases/download/2026-10-07/steamdb.min.json.gz",
-      "publishedAt": "2026-10-07T23:50:35Z",
-      "sha256": "c11fb5cb9ce2799da7bd828758535b04264b2c5fd80e55c5bd0e00edcd8626f3",
+      "revision": "d96a2a7fa4e1152cce0c2155521e62853620aab6",
+      "release": "2026-10-11",
+      "releaseId": 409994409,
+      "assetId": 632120942,
+      "url": "https://github.com/leinstay/steamdb/releases/download/2026-10-11/steamdb.min.json.gz",
+      "publishedAt": "2026-10-11T23:50:13Z",
+      "sha256": "28d65091434621290f81453b83d72a7c934bd1d4513767cffd8439404a41e91e",
       "license": "GPL-3.0"
     },
     "steam": {
@@ -28,76 +28,75 @@
       "country": "US",
       "language": "english",
       "reviews": "All-language Steam-purchase reviews",
-      "refreshedAt": "2026-10-11T00:50:53.130Z"
+      "refreshedAt": "2026-10-12T09:52:55.430Z"
     }
   },
   "coverage": {
-    "games": 198879,
-    "released": 137589,
-    "upcoming": 61290,
+    "games": 200267,
+    "released": 137636,
+    "upcoming": 62631,
     "unknownRelease": 0,
-    "knownFeatures": 198861,
-    "knownReviews": 195831,
-    "knownTags": 195811,
+    "knownFeatures": 200237,
+    "knownReviews": 195848,
+    "knownTags": 195828,
     "unknownEarlyAccess": 47,
     "tagCount": 448,
-    "sourceApps": 326363,
+    "sourceApps": 327955,
     "redirectAliases": 168,
-    "reviewRows": 188141,
-    "sourceShards": 1756
+    "reviewRows": 189377,
+    "sourceShards": 1769
   },
   "catalog": {
-    "catalog": "catalog.b9c1fef4a0e19616.json",
-    "compressedCatalog": "catalog.b9c1fef4a0e19616.json.gz",
-    "sha256": "b9c1fef4a0e19616fb9cdad897592ea32b626b20d349906f03a72bc8e40fab18",
-    "gzipSha256": "a04dd6444db7976d912b0434df8b85fe8a7d08fcc3a339eb8a3879fa137924df",
-    "bytes": 140622913,
-    "gzipBytes": 10879849,
-    "importedAt": "2026-10-11T04:50:21.078Z",
+    "catalog": "catalog.aaa4f2d9f936654c.json",
+    "compressedCatalog": "catalog.aaa4f2d9f936654c.json.gz",
+    "sha256": "aaa4f2d9f936654c5f82a99692f687c7dc6cd297da78f330340be1888ceaee2f",
+    "gzipSha256": "6b36658439494dd1f0111d3027c222d67e9482320479e781bda2d99476fe250f",
+    "bytes": 155729222,
+    "gzipBytes": 12006145,
+    "importedAt": "2026-10-12T09:52:55.430Z",
     "binary": {
       "format": "steam-feature-atlas-binary-v1",
-      "file": "catalog.831bae1bf4d43cca.bin",
-      "sha256": "831bae1bf4d43ccaa87036fe3bec464c16255cb8bd1151f78643ee71fa0eb4ff",
-      "bytes": 16945551,
+      "file": "catalog.c59efebb57453951.bin",
+      "sha256": "c59efebb57453951dcb2156b3507cebd4c23c3854cbc8bff4c1fdf32a52742da",
+      "bytes": 18973957,
       "gzip": {
-        "file": "catalog.831bae1bf4d43cca.bin.gz",
-        "sha256": "19f1db29a8d4a014b2b9c62e2ca27602a03689b02f5df350d954136c6fb7056d",
-        "bytes": 6117259
+        "file": "catalog.c59efebb57453951.bin.gz",
+        "sha256": "5ecb4392d82bfe181369ac5ab1938fe2f701ee5270893f0437b346d9d8f250cc",
+        "bytes": 6499061
       },
       "brotli": {
-        "file": "catalog.831bae1bf4d43cca.bin.br",
-        "sha256": "9b0a71b42d84019e3d00dc1084d2048b972348a6ad46f9519fb8101ee5553f1c",
-        "bytes": 5195012
+        "file": "catalog.c59efebb57453951.bin.br",
+        "sha256": "40e7280a8cd1f30ccda3da6f7490400173aeebfe150f11b4e7894b109aceee61",
+        "bytes": 5528477
       }
     }
   },
   "refreshState": {
-    "file": "refresh.bed800d9d4c98531.json.gz",
-    "sha256": "bed800d9d4c9853145ddad1ef21a788b4f0cdfa90b0dd970945853ef458c76e0",
-    "bytes": 13095434
+    "file": "refresh.3e9611166720395c.json.gz",
+    "sha256": "3e9611166720395c74990b5160873010172080f1836a2b5db0f7cc84d4a260d2",
+    "bytes": 13108450
   },
   "refresh": {
     "enabled": true,
     "existingLimit": 4000,
-    "lastRunAt": "2026-10-11T00:50:53.130Z",
+    "lastRunAt": "2026-10-12T09:52:55.430Z",
     "bootstrapComplete": true,
-    "checkedGames": 195640,
-    "discovered": 0,
-    "refreshed": 0,
+    "checkedGames": 195657,
+    "discovered": 1609,
+    "refreshed": 4000,
     "failures": 0,
-    "requests": 0,
-    "finalizedFromCheckpoint": true,
+    "requests": 43,
     "unresolvedReleased": 0,
     "deniedReleased": 2075
   },
   "steamArchive": {
     "format": "steam-feature-atlas-raw-v2",
-    "file": "steam-raw.ee47b275208b6b4c.jsonl.zst",
-    "sha256": "ee47b275208b6b4c630613da451380348951e8252a472577b03174d8dac70669",
-    "bytes": 356293784,
-    "uncompressedBytes": 2529681404,
-    "apps": 199542,
-    "successfulApps": 196227,
-    "picsApps": 199538
+    "file": "steam-raw.19ac69b5780fd10b.jsonl.zst",
+    "sha256": "19ac69b5780fd10b0db7a91f26d22715223d9a52fbda1e0d6fb4b9e04c159cfe",
+    "bytes": 356442569,
+    "uncompressedBytes": 2529944396,
+    "apps": 199560,
+    "successfulApps": 196245,
+    "picsApps": 199556
   }
 }
