@@ -208,6 +208,7 @@ if (typeof self !== 'undefined' && typeof self.addEventListener === 'function') 
           type: 'ready', gameCount: prepared.games.length, features: prepared.features,
           compatibilityDetails: catalog.features.filter(feature => isCompatibilityDetail(feature)),
           tags: prepared.tags, tagCounts: prepared.tagCounts, knownTagCount: prepared.knownTagCount,
+          languages: prepared.languages, languageCounts: prepared.languageCounts,
           importedAt: catalog.importedAt ?? manifest?.importedAt ?? null,
           sources: catalog.sources ?? manifest?.sources ?? {},
           coverage: catalog.coverage ?? manifest?.coverage ?? {},

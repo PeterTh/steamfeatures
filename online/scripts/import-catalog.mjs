@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 import { gzipSync, gunzipSync } from 'node:zlib';
 import { features as baseFeatures } from '../src/features.mjs';
+import { LANGUAGES } from '../src/languages.mjs';
 import { attachCommunityTags, buildFeatureCatalog, encodeTagIndex, indexCommunityTags, indexReviews, normalizeGame, parseGenreDefinitions, readCategoryIds, selectAppRecord, summarizeCoverage, validateCoverage } from './normalize.mjs';
 import { fetchSources, readPreviousManifest, readPreviousRefreshState, readPreviousSteamArchive, readLocalSteamArchive, retainPreviousCatalog, sha256 } from './sources.mjs';
 import { createSteamClient } from './steam-client.mjs';
@@ -148,7 +149,7 @@ export async function importCatalog({ sourceFile, output = resolve(ROOT, 'dist')
   const tagIndex = encodeTagIndex(games, tags.length);
   // Postings reference this final, Steam-ID-sorted array's row indices, not app IDs.
   const encodedGames = games.map(({ tagIds, ...game }) => game);
-  const catalog = { version: 1, importedAt, fixture, sources, coverage, ...(refreshSummary ? { refresh: refreshSummary } : {}), features, tags, tagIndex, games: encodedGames };
+  const catalog = { version: 1, importedAt, fixture, sources, coverage, ...(refreshSummary ? { refresh: refreshSummary } : {}), features, languages: LANGUAGES, tags, tagIndex, games: encodedGames };
   const bytes = Buffer.from(JSON.stringify(catalog));
   const compressed = gzipSync(bytes, { level: 9 });
   const hash = sha256(bytes);

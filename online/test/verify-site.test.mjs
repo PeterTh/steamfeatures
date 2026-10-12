@@ -44,7 +44,7 @@ async function siteFixture(t, catalogInput) {
   await saveManifest();
   const saveProvenance = () => put('provenance-lock.json', JSON.stringify({ catalog: manifest.current, refreshState: manifest.refreshState, steamArchive: manifest.steamArchive }));
   await saveProvenance();
-  for (const name of ['index.html', 'app.js', 'style.css', 'query.mjs', 'features.mjs', 'feature-presentation.mjs', 'compatibility-details.mjs', 'extra-features.mjs', 'filter-worker.js', 'brand.svg', '.nojekyll',
+  for (const name of ['index.html', 'app.js', 'style.css', 'query.mjs', 'features.mjs', 'feature-presentation.mjs', 'compatibility-details.mjs', 'extra-features.mjs', 'languages.mjs', 'filter-worker.js', 'brand.svg', '.nojekyll',
     'fonts/promptfont.woff2', 'fonts/PromptFont-LICENSE.txt', 'fonts/PromptFont-NOTICE.txt',
     'fonts/roboto-condensed-variable.woff', 'fonts/LICENSE.txt', 'fonts/NOTICE.txt', 'licenses/BlueBoxWare-MIT.txt', 'licenses/leinstay-GPL-3.0.txt', 'licenses/NOTICE.txt']) await put(name, 'Test fixture');
   const addBinary = async (binaryCatalog = catalog) => {

@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { hardwareDevices } from '../src/extra-features.mjs';
+import { normalizeSteamLanguages } from './steam-languages.mjs';
 
 const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const enabled = value => value === true || value === 1 || value === '1' || value === 'true';
@@ -78,7 +79,7 @@ export function normalizeSteamEnrichment(record, registry = new Map()) {
     }
   }
   const achievementCount = number(store?.extra_details?.links_and_info?.achievement_count) ?? number(fallback.achievementCount);
-  return { featureIds: [...ids].sort((a, b) => a - b), knownFeatureGroups: [...known].sort(), ...(achievementCount !== undefined ? { achievementCount } : {}) };
+  return { featureIds: [...ids].sort((a, b) => a - b), knownFeatureGroups: [...known].sort(), ...(achievementCount !== undefined ? { achievementCount } : {}), ...normalizeSteamLanguages(record) };
 }
 
 /** Explicit equivalent facts only. Requirements and achievement schemas are excluded. */

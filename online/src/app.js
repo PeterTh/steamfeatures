@@ -2,6 +2,7 @@ import { DEFAULT_QUERY, PRESETS, normalizeQuery, parseQuery, serializeQuery } fr
 import { parseView, serializeView } from './view-state.mjs';
 import { featureColumns, columnState, compatibilityTargets } from './feature-presentation.mjs';
 import { compatibilityDetails } from './compatibility-details.mjs';
+import { LANGUAGE_KINDS } from './languages.mjs';
 
 const $ = id => document.getElementById(id);
 const fmt = n => n == null ? 'Unknown' : new Intl.NumberFormat('en-US').format(n);
@@ -9,6 +10,7 @@ const date = value => value && !Number.isNaN(Date.parse(value)) ? new Date(value
 const groupColors = { 'Play modes': '#709de0', Controllers: '#b4a0e8', 'Steam features': '#69baa9', Creation: '#e0b775', 'Remote Play': '#6bb8d2', 'Cloud streaming': '#6bb8d2', 'Display & VR': '#d095b7', Accessibility: '#becb77', 'Steam hardware': '#89c5ad' };
 let data = {}, features = new Map(), columns = new Map(), games = new Map(), state = { ...DEFAULT_QUERY }, view = [], visibleFeatures = [], matching = 0;
 let tagOptionsBuilt = false;
+let languageOptionsBuilt = false;
 let worker, ready = false, requestId = 0, latestRequest = 0, latestResult = null, inputTimer;
 let tipAnchor = null, tipPinned = false, currentColumn = null, suppressFocusTip = false, columnCells = new Map();
 let tipHideTimer, focusFeatureAfterRender = null;
@@ -198,7 +200,7 @@ let compatibilityAnchor = null;
   function setHighlight(key) {
     highlightedFeature = key;
     // A pending title edit belongs to its debounce; highlighting does not submit it.
-    writeURL(parseQuery(location.search, data.features, data.tags), 'push');
+    writeURL(parseQuery(location.search, data.features, data.tags, data.languages), 'push');
     syncHighlight(true);
   }
   function updateMatrixLayout() {
@@ -348,15 +350,16 @@ function startWorker() {
       showError(message.message, !ready); return;
     }
     if (message.type === 'ready') {
-      data = message; data.tags ??= []; features = new Map(data.features.map(f => [f.id, f])); columns = new Map(featureColumns(data.features).map(f => [f.id, f])); ready = true;
+      data = message; data.tags ??= []; data.languages ??= []; features = new Map(data.features.map(f => [f.id, f])); columns = new Map(featureColumns(data.features).map(f => [f.id, f])); ready = true;
       buildPicker(); buildCompatibilityPicker(); tagOptionsBuilt = false; $('tag-options').replaceChildren(); if (!$('tag-picker').hidden) buildTagPicker(); updateMetadata(); $('query-controls').disabled = false;
+      languageOptionsBuilt = false; $('language-options').replaceChildren(); if (!$('language-picker').hidden) buildLanguagePicker();
       for (const button of $('presets').querySelectorAll('button')) button.disabled = false;
       loadURL();
     }
     if (message.type === 'result' && message.requestId === latestRequest) {
       latestResult = message.result;
       state = latestResult.query;
-      requestedSearch = serializeQuery(state, data.features, data.tags);
+      requestedSearch = serializeQuery(state, data.features, data.tags, data.languages);
       writeURL(state);
       syncControls(true); render();
       $('error').hidden = true; $('loading').hidden = true; $('results').hidden = false; $('results').removeAttribute('aria-busy');
@@ -367,14 +370,14 @@ function startWorker() {
 }
 
 function writeURL(query, mode = 'replace') {
-  const search = serializeView(query, highlightedFeature, data.features, data.tags);
+  const search = serializeView(query, highlightedFeature, data.features, data.tags, data.languages);
   if (search !== location.search) history[mode === 'push' ? 'pushState' : 'replaceState'](null, '', location.pathname + search + location.hash);
 }
 function loadURL() {
   clearTimeout(inputTimer);
   try {
-    const next = parseView(location.search, data.features, data.tags);
-    const sameQuery = requestedSearch === serializeQuery(next.query, data.features, data.tags) && activeQueryRequest === latestRequest && $('error').hidden;
+    const next = parseView(location.search, data.features, data.tags, data.languages);
+    const sameQuery = requestedSearch === serializeQuery(next.query, data.features, data.tags, data.languages) && activeQueryRequest === latestRequest && $('error').hidden;
     const highlightChanged = highlightedFeature !== next.highlight;
     state = next.query; highlightedFeature = next.highlight;
     hideTip(); syncControls(); syncHighlight(highlightChanged);
@@ -387,14 +390,14 @@ function query() {
   $('results').setAttribute('aria-busy', 'true');
   latestRequest = ++requestId;
   activeQueryRequest = latestRequest;
-  requestedSearch = serializeQuery(state, data.features, data.tags);
+  requestedSearch = serializeQuery(state, data.features, data.tags, data.languages);
   worker.postMessage({ type: 'query', requestId: latestRequest, query: state });
 }
 function setFilters(patch, resetPage = true) {
   if (!ready) return;
   clearTimeout(inputTimer);
   try {
-    const next = normalizeQuery({ ...state, ...patch, ...(resetPage && !('page' in patch) ? { page: 1 } : {}) }, data.features, data.tags);
+    const next = normalizeQuery({ ...state, ...patch, ...(resetPage && !('page' in patch) ? { page: 1 } : {}) }, data.features, data.tags, data.languages);
     writeURL(next, 'push');
     state = next;
     syncControls(!('releaseFrom' in patch) && !('releaseTo' in patch));
@@ -421,11 +424,13 @@ function syncControls(preserveDateDraft = false) {
   $('active-tag-count').textContent = state.hasTags.length + state.notTags.length;
   $('active-date-count').textContent = Number(!!state.releaseFrom) + Number(!!state.releaseTo);
   $('active-compatibility-count').textContent = Object.values(state.compatibility).filter(value => value !== 'ignore').length;
+  $('active-language-count').textContent = state.hasLanguages.length + state.notLanguages.length;
   for (const target of compatibilityTargets) {
     const select = $('compatibility-' + target.key); select.value = state.compatibility[target.key];
     select.closest('label').classList.toggle('selected', select.value !== 'ignore');
   }
   syncTagOptions();
+  syncLanguageOptions();
   const chips = [], chipContainer = $('active-filters');
   const existingChips = new Map([...chipContainer.children].map(chip => [chip.dataset.filterKey, chip]));
   const addChip = (key, classes, label, ariaLabel, remove) => {
@@ -462,6 +467,13 @@ function syncControls(preserveDateDraft = false) {
       `Remove ${target.name} compatibility filter`, () => setFilters({ compatibility: { ...state.compatibility, [target.key]: 'ignore' } }));
     chip.dataset.compatibilityTarget = target.key;
   }
+  for (const kind of ['hasLanguages', 'notLanguages']) for (const rule of state[kind]) {
+    const [key, category] = rule.split(':'), language = data.languages.find(item => item.key === key);
+    const required = kind === 'hasLanguages', name = `${language.name} ${category}`;
+    const chip = addChip(JSON.stringify([kind, rule]), 'language-chip ' + (required ? 'has' : 'not'), `${required ? '✓' : '−'} ${name} ×`,
+      `Remove ${required ? 'required' : 'excluded'} ${name}`, () => setFilters({ [kind]: state[kind].filter(value => value !== rule) }));
+    chip.dataset.languageRule = rule;
+  }
   // Keep unchanged buttons in place so a date-field blur cannot interrupt their click or focus.
   for (const [index, chip] of chips.entries()) {
     if (chipContainer.children[index] !== chip) chipContainer.insertBefore(chip, chipContainer.children[index] ?? null);
@@ -469,7 +481,7 @@ function syncControls(preserveDateDraft = false) {
   while (chipContainer.children.length > chips.length) chipContainer.lastElementChild.remove();
   for (const button of $('presets').querySelectorAll('button')) {
     const preset = PRESETS.find(p => p.id === button.dataset.preset);
-    const active = serializeQuery({ ...state, page: 1 }, data.features, data.tags) === serializeQuery(preset.query, data.features, data.tags);
+    const active = serializeQuery({ ...state, page: 1 }, data.features, data.tags, data.languages) === serializeQuery(preset.query, data.features, data.tags, data.languages);
     button.setAttribute('aria-pressed', String(active));
   }
 }
@@ -488,9 +500,9 @@ function applyReleaseDates(otherFilters = {}) {
   }
   const patch = { ...otherFilters, releaseFrom: $('release-from').value, releaseTo: $('release-to').value };
   try {
-    const next = normalizeQuery({ ...state, ...patch }, data.features, data.tags);
+    const next = normalizeQuery({ ...state, ...patch }, data.features, data.tags, data.languages);
     // Ignore repeated change events once these filters have already been requested.
-    if (serializeQuery(next, data.features, data.tags) === requestedSearch && activeQueryRequest === latestRequest && $('error').hidden) {
+    if (serializeQuery(next, data.features, data.tags, data.languages) === requestedSearch && activeQueryRequest === latestRequest && $('error').hidden) {
       dateDraftDirty = false; setDateError(''); return;
     }
   }
@@ -560,6 +572,53 @@ function buildTagPicker() {
   }
   $('tag-options').replaceChildren(fragment); tagOptionsBuilt = true; filterTagOptions();
 }
+function buildLanguagePicker() {
+  if (languageOptionsBuilt) return;
+  const fragment = document.createDocumentFragment();
+  const ordered = [...data.languages].sort((a, b) => (data.languageCounts?.[b.id] ?? 0) - (data.languageCounts?.[a.id] ?? 0) || a.name.localeCompare(b.name, 'en'));
+  for (const language of ordered) {
+    const card = element('div', 'language-card'); card.dataset.language = language.key;
+    card.dataset.search = `${language.name} ${language.key}`.normalize('NFKC').toLocaleLowerCase('en');
+    const header = element('div', 'language-heading'), heading = element('h3', '', language.name); heading.id = 'language-name-' + language.key;
+    const count = element('span', 'language-frequency', fmt(data.languageCounts?.[language.id] ?? 0));
+    count.title = `${count.textContent} games with ${language.name} interface support in the full catalog`;
+    header.append(heading, count);
+    card.setAttribute('role', 'group'); card.setAttribute('aria-labelledby', heading.id); card.append(header);
+    for (const category of LANGUAGE_KINDS) {
+      const rule = `${language.key}:${category.key}`, row = element('div', 'language-row'); row.dataset.languageRule = rule;
+      const label = element('span', '', category.name), actions = element('span', 'feature-actions');
+      actions.setAttribute('role', 'group'); actions.setAttribute('aria-label', `${language.name} ${category.name.toLowerCase()}`);
+      for (const [kind, action, verb] of [['hasLanguages', 'has', 'Require'], ['notLanguages', 'not', 'Exclude']]) {
+        const button = element('button', 'feature-action'); button.type = 'button'; button.dataset.action = action;
+        button.append(icon(action === 'has' ? 'plus' : 'minus')); button.setAttribute('aria-pressed', 'false');
+        button.setAttribute('aria-label', `${verb} ${language.name} ${category.name.toLowerCase()}`); button.title = button.getAttribute('aria-label');
+        button.addEventListener('click', () => {
+          const hasLanguages = state.hasLanguages.filter(value => value !== rule), notLanguages = state.notLanguages.filter(value => value !== rule);
+          if (!state[kind].includes(rule)) (kind === 'hasLanguages' ? hasLanguages : notLanguages).push(rule);
+          setFilters({ hasLanguages, notLanguages });
+        }); actions.append(button);
+      }
+      row.append(label, actions); card.append(row);
+    }
+    fragment.append(card);
+  }
+  $('language-options').replaceChildren(fragment); languageOptionsBuilt = true; filterLanguageOptions();
+}
+function syncLanguageOptions() {
+  if (!languageOptionsBuilt) return;
+  for (const row of $('language-options').querySelectorAll('.language-row')) {
+    const rule = row.dataset.languageRule, kind = state.hasLanguages.includes(rule) ? 'has' : state.notLanguages.includes(rule) ? 'not' : '';
+    row.classList.toggle('selected', !!kind); row.classList.toggle('excluded', kind === 'not');
+    for (const button of row.querySelectorAll('button')) button.setAttribute('aria-pressed', String(button.dataset.action === kind));
+  }
+  for (const card of $('language-options').children) card.classList.toggle('selected', !!card.querySelector('.language-row.selected'));
+}
+function filterLanguageOptions() {
+  const search = $('language-search').value.normalize('NFKC').toLocaleLowerCase('en').trim(); let visible = 0;
+  for (const card of $('language-options').children) { card.hidden = !card.dataset.search.includes(search); if (!card.hidden) visible++; }
+  $('language-empty').hidden = visible > 0;
+  $('language-empty').textContent = data.languages.length ? 'No languages match your search.' : 'Language filters are unavailable for this catalogue.';
+}
 function syncTagOptions() {
   if (!tagOptionsBuilt) return;
   for (const option of $('tag-options').children) {
@@ -576,12 +635,13 @@ function filterTagOptions() {
 }
 function togglePicker(kind) {
   const open = $(kind + '-picker').hidden;
-  for (const name of ['feature', 'tag', 'date', 'compatibility']) {
+  for (const name of ['feature', 'tag', 'date', 'compatibility', 'language']) {
     const expanded = name === kind && open; $(name + '-picker').hidden = !expanded;
     const searchControl = $(name + '-search-control'); if (searchControl) searchControl.hidden = !expanded;
     $(name + '-toggle').setAttribute('aria-expanded', String(expanded));
   }
   if (kind === 'tag' && open) { buildTagPicker(); syncTagOptions(); }
+  if (kind === 'language' && open) { buildLanguagePicker(); syncLanguageOptions(); }
 }
 function updateMetadata() {
   $('package-summary').textContent = `${fmt(data.gameCount)} games · ${columns.size} feature columns`;
@@ -612,7 +672,8 @@ for (const direction of ['asc', 'desc']) $('sort-' + direction).addEventListener
 $('min-reviews').addEventListener('change', e => { if (e.target.value !== '' && e.target.reportValidity()) setFilters({ minReviews: Number(e.target.value) }); else e.target.value = state.minReviews; });
 $('feature-search').addEventListener('input', e => { for (const label of $('feature-options').children) label.hidden = !label.dataset.name.includes(e.target.value.toLowerCase()); });
 $('tag-search').addEventListener('input', filterTagOptions);
-for (const kind of ['feature', 'tag', 'date', 'compatibility']) $(kind + '-toggle').addEventListener('click', () => togglePicker(kind));
+$('language-search').addEventListener('input', filterLanguageOptions);
+for (const kind of ['feature', 'tag', 'date', 'compatibility', 'language']) $(kind + '-toggle').addEventListener('click', () => togglePicker(kind));
 for (const id of ['reset', 'empty-reset', 'error-reset']) $(id).addEventListener('click', () => setFilters(DEFAULT_QUERY));
 $('retry').addEventListener('click', startWorker);
 $('highlight-chip').addEventListener('click', () => setHighlight(null));
@@ -641,7 +702,7 @@ $('faq-example').addEventListener('click', e => {
   if (!ready || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
   const target = new URL(e.currentTarget.href);
   let next;
-  try { next = parseQuery(target.search, data.features, data.tags); }
+  try { next = parseQuery(target.search, data.features, data.tags, data.languages); }
   catch { return; }
   e.preventDefault();
   $('about-dialog').close();

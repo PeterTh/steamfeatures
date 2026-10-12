@@ -107,6 +107,18 @@ The verified 199,542-app snapshot includes retained fallback fields and achieves
 
 Allow additional disk space for SQLite's transaction journal, the prior deployment, a local archive copy and build staging. Production verification checks archive checksums, every JSONL record, sorted app IDs and counts, refresh completeness, and equivalence between the browser's JSON and binary catalogs.
 
+## Language filters
+
+The browser catalog includes 103 languages with independent interface, full-audio and subtitle support. Regional variants remain distinct. Steam China's Simplified Chinese identifier and migrated Indonesian/Malay identifiers share their corresponding language cards. Numeric StoreBrowse identifiers are mapped to the same stable language keys used by PICS.
+
+StoreBrowse's complete language table takes precedence, including explicit false flags and empty lists. Unavailable or hidden store listings use a complete PICS `common.supported_languages` table when available; a previously retained store table remains usable when PICS cannot supply one. Malformed PICS language labels and legacy language strings do not establish complete language support. Missing data matches neither requirements nor exclusions. New unrecognized StoreBrowse language IDs stop the build until the dictionary is updated.
+
+**Filter by languages** has searchable cards with separate require/exclude controls for Interface, Audio and Subtitles. Cards show the number of games with interface support in the full catalog and are ordered by that count. Clicking a selected control clears it. Rules across all languages and categories combine with AND. Repeated `lang` and `notLang` URL parameters carry `language:category` pairs, such as `lang=german:interface&notLang=german:audio`. Languages do not add table columns, feature counts or score points.
+
+Each game's `languageBits` holds three flags per stable language ID, packed into 40 bytes and stored as Base64. Omission means unknown; an all-zero value means a known empty table. The existing binary dictionary encoding shares repeated profiles, and the worker decodes each profile once. The catalog's `languages` dictionary supplies IDs, stable keys and display names. No further Steam collection is needed to build these filters from the full snapshot.
+
+The verified October 12 projection of the October 11 snapshot has language information for **198,844 of 198,879 games**. Its browser binary is **18,882,490 bytes**, gzip **6,465,072 bytes**, and Brotli **5,496,574 bytes**. The Brotli increase is **301,562 bytes (5.8%)** over the preceding catalog. The raw archive and refresh checkpoint are unchanged.
+
 ## Optional future requirements pass
 
 System requirements are postponed. The confirmed source is `https://store.steampowered.com/api/appdetails?appids=<id>&filters=basic&l=english&cc=US`. It requires one app per request; batching app IDs with this filter is unsupported. Requesting only a `requirements` filter does not return the needed data.

@@ -1,10 +1,12 @@
 /** Shared, dependency-free catalog queries for the UI, worker, and Node tests. */
 import { isFeatureKnown } from './extra-features.mjs';
 import { presentationFeatures, featureColumns, compatibilityTargets } from './feature-presentation.mjs';
+import { LANGUAGE_KINDS, decodeLanguageBits, languageFlags, languageIndex } from './languages.mjs';
 export const PAGE_SIZE = 50;
 export const DEFAULT_QUERY = Object.freeze({
   q: '', has: Object.freeze([]), not: Object.freeze([]),
   hasTags: Object.freeze([]), notTags: Object.freeze([]), minReviews: 20,
+  hasLanguages: Object.freeze([]), notLanguages: Object.freeze([]),
   includeEarlyAccess: false, includeAccessibility: false, includeMultiplayer: false, includeHardware: false,
   compatibility: Object.freeze(Object.fromEntries(compatibilityTargets.map(target => [target.key, 'ignore']))),
   release: 'released', releaseFrom: '', releaseTo: '', sort: 'score-desc', page: 1,
@@ -139,8 +141,18 @@ function compatibilityFilters(value) {
   }));
 }
 
+function languageFilterList(value, index) {
+  if (value === undefined || value === null) return [];
+  const entries = Array.isArray(value) ? value : [value];
+  for (const entry of entries) {
+    const [key, kind, extra] = typeof entry === 'string' ? entry.split(':') : [];
+    if (extra !== undefined || !index.has(key) || !LANGUAGE_KINDS.some(item => item.key === kind)) throw new Error(`Unknown language filter: ${String(entry)}.`);
+  }
+  return [...new Set(entries)].sort();
+}
+
 /** has/not accept canonical numeric IDs or stable feature keys; output uses IDs. */
-export function normalizeQuery(input = {}, features, tags = []) {
+export function normalizeQuery(input = {}, features, tags = [], languages = []) {
   const index = featureIndex(features);
   const tagsByName = tagIndex(tags);
   const source = input ?? {};
@@ -153,6 +165,11 @@ export function normalizeQuery(input = {}, features, tags = []) {
   const notTags = tagList(source.notTags, tagsByName, 'excluded');
   const tagConflict = hasTags.find(tag => notTags.includes(tag));
   if (tagConflict !== undefined) throw new Error(`A tag cannot be both required and excluded: ${tagConflict}.`);
+  const languagesByKey = languageIndex(languages);
+  const hasLanguages = languageFilterList(source.hasLanguages, languagesByKey);
+  const notLanguages = languageFilterList(source.notLanguages, languagesByKey);
+  const languageConflict = hasLanguages.find(value => notLanguages.includes(value));
+  if (languageConflict) throw new Error(`Language support cannot be both required and excluded: ${languageConflict}.`);
   const release = source.release ?? DEFAULT_QUERY.release;
   const sort = source.sort ?? DEFAULT_QUERY.sort;
   if (!RELEASES.has(release)) throw new Error(`Unknown release filter: ${String(release)}.`);
@@ -163,7 +180,7 @@ export function normalizeQuery(input = {}, features, tags = []) {
     throw new Error('Release start date must be on or before the end date.');
   }
   return {
-    q: String(source.q ?? '').normalize('NFKC').trim(), has, not, hasTags, notTags,
+    q: String(source.q ?? '').normalize('NFKC').trim(), has, not, hasTags, notTags, hasLanguages, notLanguages,
     minReviews: wholeNumber(source.minReviews, DEFAULT_QUERY.minReviews, 0, 'Minimum reviews'),
     includeEarlyAccess: booleanValue(source.includeEarlyAccess, DEFAULT_QUERY.includeEarlyAccess, 'Early Access'),
     includeAccessibility: booleanValue(source.includeAccessibility, DEFAULT_QUERY.includeAccessibility, 'Accessibility'),
@@ -176,7 +193,7 @@ export function normalizeQuery(input = {}, features, tags = []) {
 }
 
 /** Read a query string or URLSearchParams; unknown feature filters never silently disappear. */
-export function parseQuery(search = '', features, tags = []) {
+export function parseQuery(search = '', features, tags = [], languages = []) {
   const params = search instanceof URLSearchParams ? search : new URLSearchParams(String(search).replace(/^\?/, '').split('#')[0]);
   function single(key) {
     const values = params.getAll(key);
@@ -189,16 +206,17 @@ export function parseQuery(search = '', features, tags = []) {
   return normalizeQuery({
     q: single('q'), has: split('has'), not: split('not'), minReviews: single('minReviews'),
     hasTags: params.getAll('tag'), notTags: params.getAll('notTag'),
+    hasLanguages: split('lang'), notLanguages: split('notLang'),
     includeEarlyAccess: single('ea'), includeAccessibility: single('a11y'), includeMultiplayer: single('mp'), includeHardware: single('hw'),
     compatibility: Object.fromEntries(compatibilityTargets.map(target => [target.key, single(target.parameter)])),
     release: single('release'), releaseFrom: single('releaseFrom'), releaseTo: single('releaseTo'),
     sort: single('sort'), page: single('page'),
-  }, features, tags);
+  }, features, tags, languages);
 }
 
 /** Return a canonical query string, including its leading '?' (or '' for defaults). */
-export function serializeQuery(input, features, tags = []) {
-  const query = normalizeQuery(input, features, tags);
+export function serializeQuery(input, features, tags = [], languages = []) {
+  const query = normalizeQuery(input, features, tags, languages);
   const index = featureIndex(features);
   const params = new URLSearchParams();
   if (query.q) params.set('q', query.q);
@@ -206,6 +224,8 @@ export function serializeQuery(input, features, tags = []) {
   if (query.not.length) params.set('not', query.not.map(id => index.byId.get(id).key).sort().join(','));
   for (const tag of query.hasTags) params.append('tag', tag);
   for (const tag of query.notTags) params.append('notTag', tag);
+  for (const language of query.hasLanguages) params.append('lang', language);
+  for (const language of query.notLanguages) params.append('notLang', language);
   if (query.minReviews !== DEFAULT_QUERY.minReviews) params.set('minReviews', String(query.minReviews));
   if (query.includeEarlyAccess) params.set('ea', '1');
   if (query.includeAccessibility) params.set('a11y', '1');
@@ -265,6 +285,10 @@ export function prepareCatalog(catalog) {
   const tagsByName = tagIndex(tags);
   const decodedTagIds = decodeTagIndex(catalog, tags.length);
   const tagCounts = Array(tags.length).fill(0);
+  const languages = catalog.languages ?? [];
+  const languagesByKey = languageIndex(languages);
+  const languageCounts = Object.fromEntries(languages.map(language => [language.id, 0]));
+  const languageProfiles = new Map();
   let knownTagCount = 0;
   const ids = new Set();
   const games = catalog.games.map((game, rowIndex) => {
@@ -279,6 +303,14 @@ export function prepareCatalog(catalog) {
     const tagDataKnown = tagIds.length > 0 || game.tagDataKnown === true;
     if (tagDataKnown) knownTagCount += 1;
     for (const id of tagIds) tagCounts[id] += 1;
+    let languageSupport = null;
+    if (game.languageBits !== undefined) {
+      if (!languages.length) throw new Error('Language support requires a language dictionary.');
+      if (!languageProfiles.has(game.languageBits)) languageProfiles.set(game.languageBits, decodeLanguageBits(game.languageBits));
+      languageSupport = languageProfiles.get(game.languageBits);
+      // Picker frequencies count games with interface support across the full catalog.
+      for (const language of languages) if (languageFlags(languageSupport, language.id) & 1) languageCounts[language.id]++;
+    }
     const known = game.featureDataKnown === true;
     // Precompute all eight toggle combinations once; sorting never sums features.
     const counts = Array(8).fill(known ? 0 : null);
@@ -298,11 +330,11 @@ export function prepareCatalog(catalog) {
       title: String(game.name ?? '').normalize('NFKC').toLocaleLowerCase('en'),
       reviews,
       rating: knownRating(game.positivePercent, reviews),
-      counts, scores,
+      counts, scores, languageSupport,
       release: knownReleaseDate(game.releaseISO),
     };
   });
-  const prepared = { [preparedMarker]: true, features, tags, tagsByName, tagCounts, knownTagCount, games };
+  const prepared = { [preparedMarker]: true, features, tags, tagsByName, tagCounts, knownTagCount, languages, languagesByKey, languageCounts, games };
   preparedCatalogs.set(catalog, prepared);
   return prepared;
 }
@@ -317,7 +349,11 @@ function compareNullable(a, b, direction = -1) {
 /** Pure query operation; feature constraints are independent of visible columns. */
 export function runQuery(catalog, input = DEFAULT_QUERY) {
   const prepared = prepareCatalog(catalog);
-  const query = normalizeQuery(input, prepared.features, prepared.tags);
+  const query = normalizeQuery(input, prepared.features, prepared.tags, prepared.languages);
+  const languageRules = [['hasLanguages', true], ['notLanguages', false]].flatMap(([field, required]) => query[field].map(value => {
+    const [key, kind] = value.split(':');
+    return { id: prepared.languagesByKey.get(key).id, bit: LANGUAGE_KINDS.find(item => item.key === kind).bit, required };
+  }));
   const requiredTags = query.hasTags.map(tag => prepared.tagsByName.get(tag));
   const excludedTags = query.notTags.map(tag => prepared.tagsByName.get(tag));
   const requiredRatings = compatibilityTargets.flatMap(target => target.ratings.filter(rating => rating.value === query.compatibility[target.key]).map(rating => rating.id));
@@ -344,6 +380,8 @@ export function runQuery(catalog, input = DEFAULT_QUERY) {
     if (query.has.some(id => !game.featureIds.includes(id))) return false;
     if (query.not.some(id => game.featureIds.includes(id))) return false;
     if (requiredRatings.some(id => !game.featureIds.includes(id))) return false;
+    if (languageRules.length && row.languageSupport === null) return false;
+    if (languageRules.some(rule => Boolean(languageFlags(row.languageSupport, rule.id) & rule.bit) !== rule.required)) return false;
     if ((requiredTags.length || excludedTags.length) && !game.tagDataKnown) return false;
     if (requiredTags.some(id => !game.tagIds.includes(id))) return false;
     if (excludedTags.some(id => game.tagIds.includes(id))) return false;

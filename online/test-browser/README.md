@@ -29,4 +29,6 @@ Run `highlight-checks.js` in the same way for column selection, URL persistence,
 
 `compatibility-details-checks.js` opens real Deck, Machine, Frame and SteamOS ratings and checks device-specific notes, duplicate removal, keyboard focus and dismissal, unchanged filters/scores, and scrolling mobile dialogs. It uses Portal 2, Hotline Miami, Halo Infinite and PUBG from the enriched catalog.
 
-Run all six harnesses in Firefox and Chromium.
+`language-checks.js` verifies searchable per-language cards, regional variants, independent interface/audio/subtitle requirements and exclusions, combined filters, unchanged table columns and scores, removable chips, shared URLs, history, reset, keyboard focus, and layouts from 320 to 1440 pixels. It needs a full catalog with language support data.
+
+Run all seven harnesses in Firefox and Chromium.
