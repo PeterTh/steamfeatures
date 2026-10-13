@@ -24,6 +24,19 @@ test('language picker counts reflect interface support, excluding audio-only and
   assert.equal(languageCounts[languageByKey('zulu').id], 1);
 });
 
+test('picker counts include every game sharing a profile and keep empty and unknown support distinct', () => {
+  const local = { ...catalog, games: [
+    game(1, { english: 7, german: 5 }), game(2, { english: 7, german: 5 }),
+    game(3, { english: 5 }), game(4, { english: 2 }), game(5, {}), game(6),
+  ] };
+  const prepared = prepareCatalog(local);
+  assert.equal(prepared.languageCounts[languageByKey('english').id], 3);
+  assert.equal(prepared.languageCounts[languageByKey('german').id], 2);
+  assert.equal(prepared.languageCounts[languageByKey('japanese').id], 0);
+  assert.equal(runQuery(prepared, { hasLanguages: ['english:interface'] }).total, 3);
+  assert.deepEqual(runQuery(prepared, { notLanguages: ['english:interface'] }).rows.map(row => row.id), [4, 5]);
+});
+
 test('each language category is independently required or excluded; unknown data matches neither', () => {
   assert.deepEqual(ids({ hasLanguages: ['german:interface'] }), [1, 2, 3]);
   assert.deepEqual(ids({ hasLanguages: ['german:audio'] }), [2]);

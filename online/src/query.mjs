@@ -306,10 +306,13 @@ export function prepareCatalog(catalog) {
     let languageSupport = null;
     if (game.languageBits !== undefined) {
       if (!languages.length) throw new Error('Language support requires a language dictionary.');
-      if (!languageProfiles.has(game.languageBits)) languageProfiles.set(game.languageBits, decodeLanguageBits(game.languageBits));
-      languageSupport = languageProfiles.get(game.languageBits);
-      // Picker frequencies count games with interface support across the full catalog.
-      for (const language of languages) if (languageFlags(languageSupport, language.id) & 1) languageCounts[language.id]++;
+      let profile = languageProfiles.get(game.languageBits);
+      if (!profile) {
+        profile = { support: decodeLanguageBits(game.languageBits), count: 0 };
+        languageProfiles.set(game.languageBits, profile);
+      }
+      languageSupport = profile.support;
+      profile.count++;
     }
     const known = game.featureDataKnown === true;
     // Precompute all eight toggle combinations once; sorting never sums features.
@@ -327,13 +330,17 @@ export function prepareCatalog(catalog) {
     const reviews = knownReviews(game.reviews);
     return {
       game: { ...game, featureIds, tagIds, tagDataKnown },
-      title: String(game.name ?? '').normalize('NFKC').toLocaleLowerCase('en'),
+      title: String(game.name ?? '').normalize('NFKC').toLowerCase(),
       reviews,
       rating: knownRating(game.positivePercent, reviews),
       counts, scores, languageSupport,
       release: knownReleaseDate(game.releaseISO),
     };
   });
+  // Count interface support once per shared profile across the full catalog.
+  for (const { support, count } of languageProfiles.values()) {
+    for (const language of languages) if (languageFlags(support, language.id) & 1) languageCounts[language.id] += count;
+  }
   const prepared = { [preparedMarker]: true, features, tags, tagsByName, tagCounts, knownTagCount, languages, languagesByKey, languageCounts, games };
   preparedCatalogs.set(catalog, prepared);
   return prepared;

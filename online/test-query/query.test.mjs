@@ -93,6 +93,10 @@ test('substring search is case-insensitive, Unicode-normalized, and literal', ()
   assert.deepEqual(ids(runQuery(local, { q: 'CAFÉ abc' })), [1]);
   assert.deepEqual(ids(runQuery(local, { q: '[x]' })), [1]);
   assert.deepEqual(ids(runQuery(local, { q: 'cafe\u0301' })), [1]);
+  const unicode = { features, games: [game(1, '\u0130STANBUL'), game(2, '\u039f\u03a3'), game(3, '\u212aELVIN')] };
+  assert.deepEqual(ids(runQuery(unicode, { q: 'i\u0307stanbul' })), [1]);
+  assert.deepEqual(ids(runQuery(unicode, { q: '\u03bf\u03c2' })), [2]);
+  assert.deepEqual(ids(runQuery(unicode, { q: 'kelvin' })), [3]);
 });
 
 test('competition ranks span page boundaries and sorting is deterministic', () => {

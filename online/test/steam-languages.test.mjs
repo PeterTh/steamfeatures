@@ -31,6 +31,17 @@ test('all language flags round-trip across byte boundaries without changing othe
   for (const value of ['', null, 'A'.repeat(56), '!'.repeat(56), encodeLanguageFlags([]).slice(0, -1)]) assert.throws(() => decodeLanguageBits(value));
 });
 
+test('unused language aliases and padding reject every nonzero flag', () => {
+  const empty = Buffer.from(encodeLanguageFlags([]), 'base64');
+  const valid = new Set(LANGUAGES.map(language => language.id));
+  for (let bit = 0; bit < empty.length * 8; bit++) {
+    if (valid.has(Math.floor(bit / 3))) continue;
+    const bytes = Buffer.from(empty);
+    bytes[bit >> 3] |= 1 << (bit & 7);
+    assert.throws(() => decodeLanguageBits(bytes.toString('base64')), /Invalid language support/);
+  }
+});
+
 test('store language support includes independent interface, audio and subtitle flags', () => {
   const value = normalizeSteamLanguages(store([
     { elanguage: 1, supported: true, full_audio: false, subtitles: true },

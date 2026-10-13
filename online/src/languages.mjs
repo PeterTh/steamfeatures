@@ -42,6 +42,10 @@ export const LANGUAGE_KINDS = Object.freeze([
   Object.freeze({ key: 'subtitles', name: 'Subtitles', bit: 4 }),
 ]);
 export const LANGUAGE_BYTES = Math.ceil((primary.length + additional.length) * 3 / 8);
+const languageIds = new Set(LANGUAGES.map(language => language.id));
+const unusedLanguageIds = Object.freeze(Array.from(
+  { length: Math.ceil(LANGUAGE_BYTES * 8 / 3) }, (_, id) => id,
+).filter(id => !languageIds.has(id)));
 const aliases = new Map([['korean', 'koreana'], ['sc_schinese', 'schinese'], ['slovakian', 'slovak']]);
 export const languageByKey = key => registry.get(aliases.get(key) ?? key);
 export function storeLanguage(language, extra = -1) {
@@ -70,9 +74,8 @@ export function decodeLanguageBits(value) {
   if (decoded.length !== LANGUAGE_BYTES || btoa(decoded) !== value) throw new Error('Invalid language support data.');
   const bytes = Uint8Array.from(decoded, character => character.charCodeAt(0));
   // Unused aliases and padding must not carry phantom support.
-  const ids = new Set(LANGUAGES.map(language => language.id));
-  for (let id = 0; id < Math.ceil(LANGUAGE_BYTES * 8 / 3); id++) {
-    if (!ids.has(id) && languageFlags(bytes, id)) throw new Error('Invalid language support data.');
+  for (const id of unusedLanguageIds) {
+    if (languageFlags(bytes, id)) throw new Error('Invalid language support data.');
   }
   return bytes;
 }
