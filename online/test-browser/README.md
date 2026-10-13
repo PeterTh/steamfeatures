@@ -31,4 +31,6 @@ Run `highlight-checks.js` in the same way for column selection, URL persistence,
 
 `language-checks.js` verifies searchable per-language cards, regional variants, independent interface/audio/subtitle requirements and exclusions, combined filters, unchanged table columns and scores, removable chips, shared URLs, history, reset, keyboard focus, and layouts from 320 to 1440 pixels. It needs a full catalog with language support data.
 
-Run all seven harnesses in Firefox and Chromium.
+`search-tag-checks.js` checks whitespace and cursor preservation during slow title typing, normalized matching and URLs, and clickable game-card tags cycling through required, excluded, and off. It covers synchronized picker/chip state, keyboard and touch input, cards whose games are filtered out, focus restoration, hover previews, history, reload, reset, and mobile layout. Supply a page created with `hasTouch: true` for its mobile tap checks.
+
+Run all eight harnesses in Firefox and Chromium.

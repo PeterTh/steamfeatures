@@ -14,6 +14,7 @@ let languageOptionsBuilt = false;
 let worker, ready = false, requestId = 0, latestRequest = 0, latestResult = null, inputTimer;
 let tipAnchor = null, tipPinned = false, currentColumn = null, suppressFocusTip = false, columnCells = new Map();
 let tipHideTimer, focusFeatureAfterRender = null;
+let preserveGameTip = false;
 let highlightedFeature = null, revealHighlightPending = false;
 let requestedSearch = null, activeQueryRequest = 0;
 let layoutFrame;
@@ -87,7 +88,9 @@ let compatibilityAnchor = null;
 
   function render() {
     if ($('compatibility-dialog').open) $('compatibility-dialog').close();
-    hideTip(); highlightColumn(null); columnCells = new Map();
+    const keepGameTip = preserveGameTip && tipAnchor?.dataset.tip === 'game';
+    if (!keepGameTip) hideTip();
+    highlightColumn(null); columnCells = new Map();
     view = latestResult.rows.map(g => ({ ...g, featureSet: new Set(g.featureIds) })); games = new Map(view.map(g => [g.id,g])); matching = latestResult.total; visibleFeatures = latestResult.columns.map(id => columns.get(id));
     $('legend-listed-label').textContent = state.includeHardware ? 'Listed / Verified' : 'Listed';
     $('legend-absent-label').textContent = 'Not listed';
@@ -145,6 +148,15 @@ let compatibilityAnchor = null;
       rows.append(tr);
     }
     $('matrix-body').replaceChildren(rows);
+    if (keepGameTip) {
+      // Keep the card usable even when excluding a tag removes its game.
+      const anchor = $('game-' + tipAnchor.dataset.id)?.querySelector(tipAnchor.matches('button') ? '.info-button' : '.game-name');
+      if (anchor) {
+        tipAnchor.removeAttribute('aria-expanded'); tipAnchor.removeAttribute('aria-haspopup'); tipAnchor.removeAttribute('aria-controls');
+        tipAnchor = anchor;
+        anchor.setAttribute('aria-expanded', 'true'); anchor.setAttribute('aria-haspopup', 'dialog'); anchor.setAttribute('aria-controls', 'tooltip');
+      }
+    }
     $('matrix').style.setProperty('--feature-total', visibleFeatures.length);
     $('matrix').style.width = `calc(var(--rank) + var(--game) + var(--score) + ${visibleFeatures.length} * var(--cell))`;
     $('empty-state').hidden = view.length > 0; $('matrix').hidden = view.length === 0;
@@ -222,7 +234,7 @@ let compatibilityAnchor = null;
   function hideTip() {
     clearTimeout(tipHideTimer);
     if (tipAnchor) { tipAnchor.removeAttribute('aria-describedby'); tipAnchor.removeAttribute('aria-expanded'); }
-    tipAnchor = null; tipPinned = false; $('tooltip').hidden = true; $('tooltip').classList.remove('pinned', 'interactive');
+    tipAnchor = null; tipPinned = false; preserveGameTip = false; $('tooltip').hidden = true; $('tooltip').classList.remove('pinned', 'interactive');
   }
   function scheduleTipHide() {
     clearTimeout(tipHideTimer);
@@ -230,7 +242,13 @@ let compatibilityAnchor = null;
   }
   function closeTipAndRestoreFocus() {
     const old = tipAnchor; hideTip(); suppressFocusTip = true;
-    old?.focus({ preventScroll: true }); suppressFocusTip = false;
+    if (old) (old.isConnected ? old : $('tag-toggle')).focus({ preventScroll: true });
+    suppressFocusTip = false;
+  }
+  function pinTip() {
+    const tip = $('tooltip'); tipPinned = true; tip.classList.add('pinned'); tip.setAttribute('role', 'dialog');
+    const close = element('button', 'tip-close', '×'); close.type = 'button'; close.setAttribute('aria-label', 'Close details'); close.addEventListener('click', closeTipAndRestoreFocus); tip.append(close);
+    tipAnchor.setAttribute('aria-expanded', 'true');
   }
   function addPair(dl, label, value) { dl.append(element('dt', '', label), element('dd', '', value)); }
   function showCompatibility(anchor) {
@@ -263,7 +281,7 @@ let compatibilityAnchor = null;
     if (tipPinned && !pinned) return;
     if (pinned && tipPinned && tipAnchor === anchor) { hideTip(); return; }
     hideTip(); tipAnchor = anchor; tipPinned = pinned;
-    const tip = $('tooltip'), id = Number(anchor.dataset.id), interactive = anchor.dataset.tip === 'feature'; tip.replaceChildren(); tip.hidden = false; tip.classList.toggle('pinned', pinned); tip.classList.toggle('interactive', interactive); tip.setAttribute('role', pinned || interactive ? 'dialog' : 'tooltip');
+    const tip = $('tooltip'), id = Number(anchor.dataset.id), interactive = anchor.dataset.tip === 'feature' || !!games.get(id)?.tagIds?.length; tip.replaceChildren(); tip.hidden = false; tip.classList.toggle('pinned', pinned); tip.classList.toggle('interactive', interactive); tip.setAttribute('role', pinned || interactive ? 'dialog' : 'tooltip');
     if (anchor.dataset.tip === 'feature') {
       const f = columns.get(id), weight = f.weight ?? 1;
       tip.append(element('p', 'tip-kicker', f.group), element('h3', '', f.name), element('p', '', f.description)); tip.setAttribute('aria-label', f.name);
@@ -303,12 +321,27 @@ let compatibilityAnchor = null;
       tip.append(dl);
       tip.append(element('p', 'tip-fine', (g.genres || []).join(' · ')), element('p', 'tip-fine', 'Steam app ' + g.id));
       if (g.steamLookupStatus === 'unavailable' && g.steamLookupResultCode === 15) tip.append(element('p', 'tip-fine', 'Steam metadata unavailable; showing older data where available.'));
-      if (g.tagIds?.length) tip.append(element('p', 'tip-tags', 'Tags: ' + g.tagIds.map(id => data.tags[id]).join(' · ')));
+      if (g.tagIds?.length) {
+        const tags = element('p', 'tip-tags', 'Tags: ');
+        for (const [index, id] of g.tagIds.entries()) {
+          const name = data.tags[id], tag = element('button', 'tip-tag', name); tag.type = 'button'; tag.dataset.tagName = name;
+          tag.addEventListener('click', () => {
+            if (!tipPinned) pinTip();
+            const hasTags = state.hasTags.filter(value => value !== name), notTags = state.notTags.filter(value => value !== name);
+            if (state.hasTags.includes(name)) notTags.push(name);
+            else if (!state.notTags.includes(name)) hasTags.push(name);
+            setFilters({ hasTags, notTags }, true, true);
+          });
+          if (index) tags.append(document.createTextNode(' · '));
+          tags.append(tag);
+        }
+        tip.append(tags); syncGameTags();
+      }
       else if (g.tagDataKnown) tip.append(element('p', 'tip-tags', 'Tags: None listed'));
       else addPair(dl, 'Tag data', 'Unknown');
 
     }
-    if (pinned) { const close = element('button', 'tip-close', '×'); close.type = 'button'; close.setAttribute('aria-label', 'Close details'); close.addEventListener('click', closeTipAndRestoreFocus); tip.append(close); anchor.setAttribute('aria-expanded', 'true'); }
+    if (pinned) pinTip();
     else if (!interactive) anchor.setAttribute('aria-describedby', 'tooltip');
     if (interactive) { anchor.setAttribute('aria-haspopup', 'dialog'); anchor.setAttribute('aria-controls', 'tooltip'); anchor.setAttribute('aria-expanded', 'true'); }
     const r = anchor.getBoundingClientRect(), t = tip.getBoundingClientRect();
@@ -361,7 +394,7 @@ function startWorker() {
       state = latestResult.query;
       requestedSearch = serializeQuery(state, data.features, data.tags, data.languages);
       writeURL(state);
-      syncControls(true); render();
+      syncControls(true, true); render();
       $('error').hidden = true; $('loading').hidden = true; $('results').hidden = false; $('results').removeAttribute('aria-busy');
       updateMatrixLayout();
     }
@@ -385,27 +418,31 @@ function loadURL() {
     else query();
   } catch (error) { latestRequest = ++requestId; showError('This link has invalid filters: ' + error.message); }
 }
-function query() {
-  hideTip(); $('error').hidden = true;
+function query(keepGameTip = false) {
+  preserveGameTip = keepGameTip && tipPinned && tipAnchor?.dataset.tip === 'game';
+  if (!preserveGameTip) hideTip();
+  $('error').hidden = true;
   $('results').setAttribute('aria-busy', 'true');
   latestRequest = ++requestId;
   activeQueryRequest = latestRequest;
   requestedSearch = serializeQuery(state, data.features, data.tags, data.languages);
   worker.postMessage({ type: 'query', requestId: latestRequest, query: state });
 }
-function setFilters(patch, resetPage = true) {
+function setFilters(patch, resetPage = true, keepGameTip = false) {
   if (!ready) return;
   clearTimeout(inputTimer);
   try {
     const next = normalizeQuery({ ...state, ...patch, ...(resetPage && !('page' in patch) ? { page: 1 } : {}) }, data.features, data.tags, data.languages);
     writeURL(next, 'push');
     state = next;
-    syncControls(!('releaseFrom' in patch) && !('releaseTo' in patch));
-    query();
+    syncControls(!('releaseFrom' in patch) && !('releaseTo' in patch), !('q' in patch) || patch.q === $('search').value);
+    query(keepGameTip);
   } catch (error) { showError(error.message); }
 }
-function syncControls(preserveDateDraft = false) {
-  $('search').value = state.q; $('early-access').checked = state.includeEarlyAccess; $('accessibility').checked = state.includeAccessibility;
+function syncControls(preserveDateDraft = false, preserveSearchDraft = false) {
+  // Normalize the query for matching and URLs without rewriting a title being typed.
+  if (!preserveSearchDraft) $('search').value = state.q;
+  $('early-access').checked = state.includeEarlyAccess; $('accessibility').checked = state.includeAccessibility;
   $('multiplayer').checked = state.includeMultiplayer;
   $('hardware').checked = state.includeHardware;
   $('min-reviews').value = state.minReviews; $('release').value = state.release;
@@ -430,6 +467,7 @@ function syncControls(preserveDateDraft = false) {
     select.closest('label').classList.toggle('selected', select.value !== 'ignore');
   }
   syncTagOptions();
+  syncGameTags();
   syncLanguageOptions();
   const chips = [], chipContainer = $('active-filters');
   const existingChips = new Map([...chipContainer.children].map(chip => [chip.dataset.filterKey, chip]));
@@ -619,6 +657,16 @@ function filterLanguageOptions() {
   $('language-empty').hidden = visible > 0;
   $('language-empty').textContent = data.languages.length ? 'No languages match your search.' : 'Language filters are unavailable for this catalogue.';
 }
+function syncGameTags() {
+  for (const tag of $('tooltip').querySelectorAll('.tip-tag')) {
+    const name = tag.dataset.tagName, kind = state.hasTags.includes(name) ? 'has' : state.notTags.includes(name) ? 'not' : '';
+    const status = kind === 'has' ? 'Required' : kind === 'not' ? 'Excluded' : 'Not filtered';
+    const action = kind === 'has' ? 'Exclude' : kind === 'not' ? 'Clear filter for' : 'Require';
+    tag.classList.toggle('has', kind === 'has'); tag.classList.toggle('not', kind === 'not');
+    tag.setAttribute('aria-pressed', String(!!kind)); tag.setAttribute('aria-label', `${name}: ${status}. ${action} tag ${name}`);
+    tag.title = `${status}. ${action} tag ${name}`;
+  }
+}
 function syncTagOptions() {
   if (!tagOptionsBuilt) return;
   for (const option of $('tag-options').children) {
@@ -734,7 +782,7 @@ window.addEventListener('popstate', () => { if (ready) loadURL(); });
   $('tooltip').addEventListener('focusout', e => { if (!$('tooltip').contains(e.relatedTarget) && !tipAnchor?.contains(e.relatedTarget)) scheduleTipHide(); });
   document.addEventListener('pointerdown', e => { if (tipAnchor && !tipAnchor.contains(e.target) && !$('tooltip').contains(e.target)) hideTip(); });
   document.addEventListener('keydown', e => { if (e.key === 'Escape') closeTipAndRestoreFocus(); });
-  $('matrix-region').addEventListener('scroll', hideTip, { passive: true });
+  $('matrix-region').addEventListener('scroll', () => { if (!preserveGameTip) hideTip(); }, { passive: true });
   window.addEventListener('resize', () => { hideTip(); scheduleMatrixLayout(); });
   const layoutObserver = new ResizeObserver(scheduleMatrixLayout);
   layoutObserver.observe($('matrix-region'));
