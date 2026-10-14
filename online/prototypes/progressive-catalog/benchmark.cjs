@@ -8,10 +8,11 @@ async function main() {
   const { createPrototypeServer } = await import('./server.mjs');
   const server = await createPrototypeServer({ instrument: true });
   const summary = JSON.parse(await readFile(resolve(__dirname, '../../.cache/progressive-catalog/summary.json'), 'utf8'));
-  const out = resolve(__dirname, '../../test-results/benchmarks/progressive-catalog-2026-10-13.json');
+  const out = resolve(__dirname, '../../test-results/benchmarks', process.env.PROTOTYPE_BENCHMARK_REPORT || 'progressive-catalog-2026-10-13.json');
   await mkdir(resolve(out, '..'), { recursive: true });
-  const report = { measuredAt: new Date().toISOString(), dataset: summary, methodology: { freshContexts: true, alternatingOrder: true, localRepetitions: 6,
-    slowRepetitions: 3, slow: '10 Mbps per catalogue response, 150 ms per uncached HTTP request', initialPaint: 'Two animation frames after result visibility and required fonts', full: 'Prototype complete background worker ready' }, runs: [], summaries: [] };
+  const localRepetitions = Number(process.env.PROTOTYPE_LOCAL_REPS || 6), slowRepetitions = Number(process.env.PROTOTYPE_SLOW_REPS || 3);
+  const report = { measuredAt: new Date().toISOString(), dataset: summary, methodology: { freshContexts: true, alternatingOrder: true, localRepetitions,
+    slowRepetitions, slow: '10 Mbps per catalogue response, 150 ms per uncached HTTP request', initialPaint: 'Two animation frames after result visibility and required fonts', full: 'Prototype complete background worker ready' }, runs: [], summaries: [] };
   let expectedView, expectedCounts;
   async function sample(browser, name, profile, variant, repetition, record = true) {
     const context = await browser.newContext({ viewport: { width: 1440, height: 1050 } });
@@ -27,7 +28,7 @@ async function main() {
         window.Worker = class extends NativeWorker {
           constructor(...args) {
             super(...args); const index = window.__initialPerf.workers.length;
-            const record = { createdMs: performance.now() }; window.__initialPerf.workers.push(record);
+            const record = this.record = { createdMs: performance.now() }; window.__initialPerf.workers.push(record);
             this.addEventListener('message', ({ data }) => {
               if (data.type === 'ready') {
                 record.readyMs = performance.now(); Object.assign(record, data.benchmark);
@@ -37,6 +38,7 @@ async function main() {
               if (data.type === 'result' && window.__initialPerf.firstResultMs === undefined) window.__initialPerf.firstResultMs = performance.now();
             });
           }
+          terminate() { this.record.terminatedMs = performance.now(); super.terminate(); }
         };
         new MutationObserver(() => {
           if (document.getElementById('results')?.hidden !== false || window.__initialPerf.domVisibleMs !== undefined) return;
@@ -54,12 +56,15 @@ async function main() {
       const completed = await page.evaluate(() => ({ perf: window.__initialPerf, load: window.steamFeatureAtlas.getLoadState?.(), view: window.steamFeatureAtlas.getView() }));
       assert.deepEqual(completed.view, initial.view, 'Background readiness must not change, rerender or reset the active query');
       assert.equal(completed.load?.backgroundError ?? null, null); assert.deepEqual(errors, []);
+      const activeWorkerCount = completed.perf.workers.filter(worker => worker.terminatedMs === undefined).length;
+      assert.equal(activeWorkerCount, 1, 'Only one catalogue index should remain after full readiness');
+      if (variant === 'prototype') assert.notEqual(completed.perf.workers[0].terminatedMs, undefined, 'The priority worker should be terminated during handover');
       const requests = server.requests.slice(start).filter(request => /\.bin\.(?:gz|br)$/.test(request.name));
       assert.equal(requests.length, variant === 'prototype' ? 2 : 1, 'The first partition should be reused from browser cache by the background worker');
       const first = initial.perf.workers[0];
       const run = { browser: name, version: browser.version(), profile, variant, repetition, paintedMs: initial.perf.paintedMs, readyMs: first.readyMs,
         prepareMs: first.prepareMs, compression: first.compression, initialPayloadBytes: first.payloadBytes,
-        fullReadyMs: completed.load?.fullReadyAt ?? first.readyMs, workers: completed.perf.workers,
+        fullReadyMs: completed.load?.fullReadyAt ?? first.readyMs, workers: completed.perf.workers, activeWorkerCount,
         payloadNetworkBytes: requests.reduce((sum, request) => sum + request.bytes, 0), payloadRequests: requests.map(request => ({ name: request.name, bytes: request.bytes })) };
       if (record) { report.runs.push(run); await writeFile(out, JSON.stringify(report, null, 2) + '\n'); console.log(JSON.stringify({ browser: name, profile, variant, repetition, paintedMs: +run.paintedMs.toFixed(1), fullReadyMs: +run.fullReadyMs.toFixed(1), prepareMs: +run.prepareMs.toFixed(1) })); }
     } finally { await context.close(); }
@@ -69,7 +74,7 @@ async function main() {
       const browser = name === 'edge' ? await chromium.launch({ channel: 'msedge', headless: true }) : await firefox.launch({ headless: true });
       try {
         await sample(browser, name, 'local', 'baseline', -1, false); await sample(browser, name, 'local', 'prototype', -1, false);
-        for (const [profile, count] of [['local', Number(process.env.PROTOTYPE_LOCAL_REPS || 6)], ['slow', Number(process.env.PROTOTYPE_SLOW_REPS || 3)]]) {
+        for (const [profile, count] of [['local', localRepetitions], ['slow', slowRepetitions]]) {
           for (let repetition = 0; repetition < count; repetition++) for (const variant of repetition % 2 ? ['prototype', 'baseline'] : ['baseline', 'prototype']) await sample(browser, name, profile, variant, repetition);
           const medians = Object.fromEntries(['baseline', 'prototype'].map(variant => { const runs = report.runs.filter(run => run.browser === name && run.profile === profile && run.variant === variant); return [variant, Object.fromEntries(['paintedMs', 'readyMs', 'prepareMs', 'fullReadyMs', 'payloadNetworkBytes'].map(key => [key, median(runs.map(run => run[key]))]))]; }));
           report.summaries.push({ browser: name, profile, repetitions: count, medians, initialSavedMs: medians.baseline.paintedMs - medians.prototype.paintedMs,
