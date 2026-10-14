@@ -13,7 +13,7 @@ import { buildSteamArchiveSnapshot } from './steam-archive-snapshot.mjs';
 import { recoverArchivedDenials } from './steam-denials.mjs';
 import { createRefreshState, validateRefreshState } from './refresh-state.mjs';
 import { refreshSteam, mergeSteamState, auditSteamCoverage } from './steam-refresh.mjs';
-import { writeBinaryCatalog } from './catalog-package.mjs';
+import { writeBinaryCatalog, writeProgressiveCatalog } from './catalog-package.mjs';
 import { openSteamData, withSteamData, projectSteamData, mergeSteamEnrichment } from './steam-data-import.mjs';
 import { writeSteamDataArchive } from './steam-data.mjs';
 import { archiveRecord } from './steam-enrichment.mjs';
@@ -160,6 +160,7 @@ export async function importCatalog({ sourceFile, output = resolve(ROOT, 'dist')
   await writeFile(resolve(dataDirectory, filename), bytes);
   await writeFile(resolve(dataDirectory, `${filename}.gz`), compressed);
   current.binary = await writeBinaryCatalog(catalog, dataDirectory);
+  current.progressive = await writeProgressiveCatalog(catalog, dataDirectory, current.binary.sha256);
   let stateDescriptor;
   if (refreshState) {
     const stateBytes = gzipSync(Buffer.from(JSON.stringify(refreshState)), { level: 9 });
@@ -182,7 +183,9 @@ export async function importCatalog({ sourceFile, output = resolve(ROOT, 'dist')
   const lock = { version: 1, importedAt, fixture, sources, coverage, catalog: current, ...(stateDescriptor ? { refreshState: stateDescriptor, refresh: refreshSummary } : {}), ...(rawDescriptor ? { steamArchive: rawDescriptor } : {}) };
   await writeFile(resolve(output, 'provenance-lock.json'), JSON.stringify(lock, null, 2) + '\n');
   console.log(JSON.stringify({ games: games.length, features: features.length,
-    browserBrotliMB: +(current.binary.brotli.bytes / 1e6).toFixed(2), browserGzipMB: +(current.binary.gzip.bytes / 1e6).toFixed(2),
+    initialBrotliMB: +(current.progressive.priority.brotli.bytes / 1e6).toFixed(2),
+    browserBrotliMB: +((current.progressive.priority.brotli.bytes + current.progressive.remainder.brotli.bytes) / 1e6).toFixed(2),
+    browserGzipMB: +((current.progressive.priority.gzip.bytes + current.progressive.remainder.gzip.bytes) / 1e6).toFixed(2),
     ...(rawDescriptor ? { rawArchiveApps: rawDescriptor.apps, rawArchiveCompressedMB: +(rawDescriptor.bytes / 1048576).toFixed(2) } : {}), fixture, output }, null, 2));
   return { manifest, catalog };
   } finally { picsClient?.close(); steamData?.close(); }

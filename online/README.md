@@ -127,11 +127,15 @@ Publication requires at least 50,000 games, 70% known feature data and 30% known
 
 `data/manifest.json` identifies the current catalog, optionally one retained predecessor, source provenance, coverage and maintenance files. Catalog filenames include a content hash. Each payload descriptor records its filename, size and SHA-256; paths and redirects must stay within the manifest's origin and directory.
 
-The browser downloads the binary catalog, using Brotli when supported, then gzip or uncompressed binary as fallbacks. JSON and gzip JSON copies support inspection and clients using JSON-only manifests. Compressed and decompressed data are both verified.
+Normal builds publish two browser archives under `current.progressive`: all games with at least 20 known reviews, and the remaining games. The first archive provides complete results for the default filter and any higher review minimum. Catalogue-wide tag and language counts are stored in the manifest so the pickers remain accurate before the second archive loads.
+
+After the first results appear, a second worker loads and prepares the full catalogue in the background, reusing the first archive from the browser cache. It takes over all queries when ready and the initial worker is terminated. Lower review thresholds wait for complete data; shared links below 20 load both archives immediately. Background loading is silent unless a requested filter needs to wait or a download fails. The data panel adds the second file's compression and size when loading finishes.
+
+Each archive uses Brotli when supported, then gzip or uncompressed binary as fallbacks. Full binary, JSON and gzip JSON copies remain available for older clients and inspection. Compressed and decompressed data are verified. Both partitions and their transport variants are retained alongside the previous catalogue, with snapshot, review-cutoff, record-equivalence and picker-count checks before deployment.
 
 Binary format `steam-feature-atlas-binary-v1` stores UTF-8 titles, variable-length integers, repeated-value dictionaries, feature bitsets and tag postings in columns. Games are grouped by feature set, with app ID breaking ties. Tag postings refer to row indices in that order. The format preserves every field, including missing versus null values. See the [encoder](scripts/catalog-binary.mjs), [decoder](src/catalog-binary.mjs) and [descriptor validation](src/catalog-descriptor.mjs); incompatible changes require a new format version.
 
-The worker expands tag postings and prepares query indexes. [`verify-site.mjs`](scripts/verify-site.mjs) checks binary/JSON equivalence, compressed variants, provenance and saved refresh state before deployment.
+The worker expands tag postings and prepares query indexes. [`verify-site.mjs`](scripts/verify-site.mjs) checks full and merged binary/JSON equivalence, compressed variants, provenance and saved refresh state before deployment.
 
 ## Checks and licenses
 

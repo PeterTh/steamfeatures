@@ -9,8 +9,9 @@ import { sha256 } from '../scripts/sources.mjs';
 import { createFixture } from '../scripts/fixture.mjs';
 import { decodeBinaryCatalog, BINARY_FORMAT } from '../src/catalog-binary.mjs';
 import { prepareCatalog, runQuery } from '../src/query.mjs';
+import { mergeCatalogPartitions } from '../src/progressive-catalog.mjs';
 
-test('fixture import emits equivalent binary, Brotli, gzip, JSON, licenses and provenance', async () => {
+test('fixture import emits equivalent full and split binaries, compressed variants, JSON and provenance', async () => {
   const output = await mkdtemp(join(tmpdir(), 'steam-atlas-import-'));
   try {
     const { catalog, manifest } = await importCatalog({ output, fixture: true });
@@ -45,10 +46,30 @@ test('fixture import emits equivalent binary, Brotli, gzip, JSON, licenses and p
       assert.deepEqual(decompress(packed), binary);
     }
     const decoded = decodeBinaryCatalog(binary);
+    const split = manifest.current.progressive;
+    assert.equal(split.minReviews, 20);
+    assert.equal(split.snapshot, descriptor.sha256);
+    const parts = [];
+    for (const part of [split.priority, split.remainder]) {
+      const raw = await readFile(join(output, 'data', part.file));
+      assert.equal(raw.length, part.bytes); assert.equal(sha256(raw), part.sha256);
+      for (const [encoding, decompress] of [['gzip', gunzipSync], ['brotli', brotliDecompressSync]]) {
+        const packed = await readFile(join(output, 'data', part[encoding].file));
+        assert.equal(packed.length, part[encoding].bytes); assert.equal(sha256(packed), part[encoding].sha256);
+        assert.deepEqual(decompress(packed), raw);
+      }
+      parts.push(decodeBinaryCatalog(raw));
+    }
+    const merged = mergeCatalogPartitions(...parts), prepared = prepareCatalog(merged);
+    assert.deepEqual(split.statistics, { gameCount: prepared.games.length, tagCounts: prepared.tagCounts,
+      knownTagCount: prepared.knownTagCount, languageCounts: prepared.languageCounts });
     const records = value => prepareCatalog(value).games.map(row => row.game).sort((a, b) => a.id - b.id);
     assert.deepEqual(records(decoded), records(catalog));
+    assert.deepEqual(records(merged), records(catalog));
+    assert.deepEqual(runQuery(parts[0], {}), runQuery(catalog, {}));
     for (const query of [{}, { hasTags: ['Co-op'] }, { notTags: ['MMORPG'], minReviews: 0 }, { includeEarlyAccess: true, release: 'all', sort: 'title-asc' }]) {
       assert.deepEqual(runQuery(decoded, query), runQuery(catalog, query));
+      assert.deepEqual(runQuery(merged, query), runQuery(catalog, query));
     }
     assert.deepEqual(JSON.parse(await readFile(join(output, 'provenance-lock.json'))).catalog, manifest.current);
     assert.match(await readFile(join(output, 'licenses/NOTICE.txt'), 'utf8'), /BlueBoxWare/);

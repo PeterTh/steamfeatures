@@ -7,7 +7,7 @@ import { brotliCompressSync, gzipSync } from 'node:zlib';
 import { verifyPublishedSite, verifySite } from '../scripts/verify-site.mjs';
 import { applyRefreshResults, createRefreshState } from '../scripts/refresh-state.mjs';
 import { sha256 } from '../scripts/sources.mjs';
-import { writeBinaryCatalog } from '../scripts/catalog-package.mjs';
+import { writeBinaryCatalog, writeProgressiveCatalog } from '../scripts/catalog-package.mjs';
 
 async function siteFixture(t, catalogInput) {
   const directory = await mkdtemp(join(tmpdir(), 'steam-atlas-verify-'));
@@ -214,5 +214,60 @@ test('binary deployment verification checks retained previous payloads too', asy
   await fixture.saveManifest();
   await verifySite(fixture.directory, { minimumGames: 1 });
   await fixture.put('data/' + binary.brotli.file, 'corrupt retained payload');
+  await assert.rejects(verifySite(fixture.directory, { minimumGames: 1 }), /Checksum or size mismatch/);
+});
+
+async function progressiveFixture(t, importedAt = '2026-10-14T00:00:00Z') {
+  const catalog = { version: 1, fixture: false, importedAt, coverage: { games: 2 }, refresh: { bootstrapComplete: true },
+    features: [{ id: 2, key: 'single-player', name: 'Single-player', weight: 1 }], tags: ['RPG'],
+    tagIndex: { encoding: 'delta-game-indices-v1', lists: [[0, 1]] }, games: [
+      { id: 10, name: 'Twenty', featureIds: [2], featureDataKnown: true, reviews: 20 },
+      { id: 20, name: 'Nineteen', featureIds: [2], featureDataKnown: true, reviews: 19 },
+    ] };
+  const fixture = await siteFixture(t, catalog);
+  const binary = await fixture.addBinary();
+  fixture.manifest.current.progressive = await writeProgressiveCatalog(catalog, join(fixture.directory, 'data'), binary.sha256);
+  await fixture.put('progressive-catalog.mjs', 'Test progressive asset');
+  await fixture.saveManifest(); await fixture.saveProvenance();
+  return fixture;
+}
+
+test('deployment verification accepts equivalent partitions and rejects incorrect cutoffs and global counts', async t => {
+  const fixture = await progressiveFixture(t), plan = fixture.manifest.current.progressive;
+  assert.equal((await verifySite(fixture.directory, { minimumGames: 1 })).games, 2);
+  [plan.priority, plan.remainder] = [plan.remainder, plan.priority];
+  await fixture.saveManifest(); await fixture.saveProvenance();
+  await assert.rejects(verifySite(fixture.directory, { minimumGames: 1 }), /review threshold/);
+  [plan.priority, plan.remainder] = [plan.remainder, plan.priority];
+  plan.statistics.tagCounts[0] = 1;
+  await fixture.saveManifest(); await fixture.saveProvenance();
+  await assert.rejects(verifySite(fixture.directory, { minimumGames: 1 }), /partition statistics/);
+});
+
+for (const part of ['priority', 'remainder']) for (const variant of ['raw', 'gzip', 'brotli']) {
+  test(`deployment verification checks ${part} ${variant} partition bytes`, async t => {
+    const fixture = await progressiveFixture(t), binary = fixture.manifest.current.progressive[part];
+    await fixture.put('data/' + (variant === 'raw' ? binary.file : binary[variant].file), 'Corrupt partition');
+    await assert.rejects(verifySite(fixture.directory, { minimumGames: 1 }), /Checksum or size mismatch/);
+  });
+}
+
+test('deployment verification checks split provenance, required assets and retained partitions', async t => {
+  const fixture = await progressiveFixture(t), previous = await progressiveFixture(t, '2026-10-13T00:00:00Z');
+  const old = previous.manifest.current;
+  for (const file of [old.catalog, old.compressedCatalog, ...[old.binary, old.progressive.priority, old.progressive.remainder].flatMap(binary => [binary.file, binary.gzip.file, binary.brotli.file])]) {
+    await fixture.put('data/' + file, await readFile(join(previous.directory, 'data', file)));
+  }
+  fixture.manifest.previous = old; await fixture.saveManifest();
+  await verifySite(fixture.directory, { minimumGames: 1 });
+  const provenance = JSON.parse(await readFile(join(fixture.directory, 'provenance-lock.json')));
+  delete provenance.catalog.progressive;
+  await fixture.put('provenance-lock.json', JSON.stringify(provenance));
+  await assert.rejects(verifySite(fixture.directory, { minimumGames: 1 }), /Provenance lock/);
+  await fixture.saveProvenance();
+  await rm(join(fixture.directory, 'progressive-catalog.mjs'));
+  await assert.rejects(verifySite(fixture.directory, { minimumGames: 1 }), /ENOENT/);
+  await fixture.put('progressive-catalog.mjs', 'Restored asset');
+  await fixture.put('data/' + old.progressive.remainder.brotli.file, 'Corrupt retained partition');
   await assert.rejects(verifySite(fixture.directory, { minimumGames: 1 }), /Checksum or size mismatch/);
 });

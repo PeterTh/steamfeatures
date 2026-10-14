@@ -12,6 +12,8 @@ let data = {}, features = new Map(), columns = new Map(), games = new Map(), sta
 let tagOptionsBuilt = false;
 let languageOptionsBuilt = false;
 let worker, ready = false, requestId = 0, latestRequest = 0, latestResult = null, inputTimer;
+let fullWorker, fullReady = false, backgroundStarted = false, backgroundError = null, pendingFullQuery = false;
+let lastSubmittedQuery = null, completedRequest = 0, fullReadyAt = null;
 let tipAnchor = null, tipPinned = false, currentColumn = null, suppressFocusTip = false, columnCells = new Map();
 let tipHideTimer, focusFeatureAfterRender = null;
 let preserveGameTip = false;
@@ -370,36 +372,88 @@ function showError(message, loading = false) {
   $('results').removeAttribute('aria-busy');
 }
 function startWorker() {
+  if (fullWorker !== worker) fullWorker?.terminate();
+  fullWorker = null; fullReady = false; backgroundStarted = false; backgroundError = null;
+  pendingFullQuery = false; lastSubmittedQuery = null; completedRequest = 0; fullReadyAt = null;
+  $('catalog-progress').hidden = true; $('catalog-retry').hidden = true;
   worker?.terminate(); ready = false; requestedSearch = null;
   $('query-controls').disabled = true;
   $('error').hidden = true; $('loading').hidden = false; $('results').hidden = true;
-  $('loading-message').textContent = 'Loading the complete game catalog…';
+  $('loading-message').textContent = 'Loading the game catalog…';
   for (const button of $('presets').querySelectorAll('button')) button.disabled = true;
   worker = new Worker(new URL('./filter-worker.js', import.meta.url), { type: 'module' });
-  worker.addEventListener('error', () => showError('The catalog worker could not start. Reload this page or try a browser that supports module workers.', true));
-  worker.addEventListener('message', ({ data: message }) => {
+  worker.addEventListener('error', ({ target }) => { if (target === worker) showError('The catalog worker could not start. Reload this page or try a browser that supports module workers.', true); });
+  worker.addEventListener('message', ({ target, data: message }) => {
+    if (target !== worker) return;
     if (message.type === 'error') {
       if (message.requestId != null && message.requestId !== latestRequest) return;
       showError(message.message, !ready); return;
     }
     if (message.type === 'ready') {
+      fullReady = !message.progressive?.partial; fullReadyAt = fullReady ? performance.now() : null;
       data = message; data.tags ??= []; data.languages ??= []; features = new Map(data.features.map(f => [f.id, f])); columns = new Map(featureColumns(data.features).map(f => [f.id, f])); ready = true;
       buildPicker(); buildCompatibilityPicker(); tagOptionsBuilt = false; $('tag-options').replaceChildren(); if (!$('tag-picker').hidden) buildTagPicker(); updateMetadata(); $('query-controls').disabled = false;
       languageOptionsBuilt = false; $('language-options').replaceChildren(); if (!$('language-picker').hidden) buildLanguagePicker();
       for (const button of $('presets').querySelectorAll('button')) button.disabled = false;
       loadURL();
     }
-    if (message.type === 'result' && message.requestId === latestRequest) {
-      latestResult = message.result;
-      state = latestResult.query;
-      requestedSearch = serializeQuery(state, data.features, data.tags, data.languages);
-      writeURL(state);
-      syncControls(true, true); render();
-      $('error').hidden = true; $('loading').hidden = true; $('results').hidden = false; $('results').removeAttribute('aria-busy');
-      updateMatrixLayout();
-    }
+    receiveResult(message);
   });
-  worker.postMessage({ type: 'init', manifestURL: new URL('./data/manifest.json', location.href).href });
+  worker.postMessage({ type: 'init', minReviews: new URLSearchParams(location.search).get('minReviews') ?? DEFAULT_QUERY.minReviews, manifestURL: new URL('./data/manifest.json', location.href).href });
+}
+
+function receiveResult(message) {
+  if (message.type !== 'result' || message.requestId !== latestRequest) return;
+  completedRequest = message.requestId;
+  latestResult = message.result;
+  state = latestResult.query;
+  requestedSearch = serializeQuery(state, data.features, data.tags, data.languages);
+  writeURL(state);
+  syncControls(true, true); render();
+  $('error').hidden = true; $('loading').hidden = true; $('results').hidden = false; $('results').removeAttribute('aria-busy');
+  updateMatrixLayout();
+  if (data.progressive?.partial && !backgroundStarted) requestAnimationFrame(() => requestAnimationFrame(() => startBackgroundCatalog()));
+}
+function backgroundFailed(message) {
+  backgroundError = message;
+  $('catalog-progress').hidden = false; $('catalog-retry').hidden = false;
+  $('catalog-status').textContent = 'More games could not load. Games with at least 20 reviews are still available.';
+  if (pendingFullQuery) showError('The complete catalog could not load. Retry, or raise the review minimum to 20.');
+}
+function startBackgroundCatalog(retry = false) {
+  if (!data.progressive?.partial || fullReady || (backgroundStarted && !retry)) return;
+  fullWorker?.terminate(); backgroundStarted = true; backgroundError = null;
+  $('catalog-progress').hidden = !pendingFullQuery; $('catalog-retry').hidden = true;
+  $('catalog-status').textContent = 'Loading more games to apply this filter…';
+  fullWorker = new Worker(new URL('./filter-worker.js', import.meta.url), { type: 'module' });
+  fullWorker.addEventListener('error', ({ target }) => {
+    if (target !== fullWorker) return;
+    if (target === worker) showError('The catalog worker stopped. Reload this page to try again.', true);
+    else backgroundFailed('The background worker could not start.');
+  });
+  fullWorker.addEventListener('message', ({ target, data: message }) => {
+    if (target !== fullWorker) return;
+    if (message.type === 'error') {
+      if (target !== worker) backgroundFailed(message.message);
+      else if (message.requestId == null || message.requestId === latestRequest) showError(message.message, !ready);
+      return;
+    }
+    if (message.type === 'ready') {
+      if (fullReady) return;
+      fullReady = true; fullReadyAt = performance.now();
+      // Switch references on the main thread; the full index stays in its worker.
+      const previous = worker; worker = fullWorker;
+      data.progressive = message.progressive;
+      updateMetadata();
+      $('catalog-progress').hidden = true;
+      pendingFullQuery = false;
+      previous.terminate();
+      // A terminated worker may have an outstanding result. Reissue only the
+      // latest submitted query, never a newer search draft awaiting its debounce.
+      if (lastSubmittedQuery?.requestId === latestRequest && completedRequest !== latestRequest) worker.postMessage({ type: 'query', ...lastSubmittedQuery });
+    } else receiveResult(message);
+  });
+  fullWorker.postMessage({ type: 'init', mode: 'full', plan: data.progressive.plan });
 }
 
 function writeURL(query, mode = 'replace') {
@@ -426,7 +480,16 @@ function query(keepGameTip = false) {
   latestRequest = ++requestId;
   activeQueryRequest = latestRequest;
   requestedSearch = serializeQuery(state, data.features, data.tags, data.languages);
-  worker.postMessage({ type: 'query', requestId: latestRequest, query: state });
+  pendingFullQuery = false;
+  $('catalog-progress').hidden = !backgroundError;
+  lastSubmittedQuery = { requestId: latestRequest, query: state };
+  if (!data.progressive?.partial || state.minReviews >= data.progressive.plan.minReviews) worker.postMessage({ type: 'query', ...lastSubmittedQuery });
+  else {
+    pendingFullQuery = true;
+    startBackgroundCatalog();
+    $('catalog-progress').hidden = false;
+    $('catalog-status').textContent = backgroundError ? 'More games could not load. Retry to use this filter.' : 'Loading more games to apply this filter…';
+  }
 }
 function setFilters(patch, resetPage = true, keepGameTip = false) {
   if (!ready) return;
@@ -691,11 +754,16 @@ function togglePicker(kind) {
   if (kind === 'tag' && open) { buildTagPicker(); syncTagOptions(); }
   if (kind === 'language' && open) { buildLanguagePicker(); syncLanguageOptions(); }
 }
+function formatCatalogFile(file) {
+  const compression = { brotli: 'Brotli', gzip: 'gzip', uncompressed: 'uncompressed' }[file.compression];
+  return compression + (file.bytes == null ? '' : ' (' + (file.bytes / 1_000_000).toFixed(2) + ' MB)');
+}
 function updateMetadata() {
   $('package-summary').textContent = `${fmt(data.gameCount)} games · ${columns.size} feature columns`;
-  const compression = { brotli: 'Brotli', gzip: 'gzip', uncompressed: 'uncompressed' }[data.catalogCompression];
-  const fileSize = data.catalogBytes == null ? '' : ` (${(data.catalogBytes / 1_000_000).toFixed(2)} MB)`;
-  $('method-dates').textContent = `Updated ${date(data.importedAt)}. Individual games may have older data.${compression ? ` Data file: ${compression}${fileSize}.` : ''}`;
+  const files = data.progressive?.files;
+  const fileInfo = files ? ` Initial data file: ${formatCatalogFile(files.priority)}.${files.remainder ? ` Second data file: ${formatCatalogFile(files.remainder)}.` : ''}`
+    : data.catalogCompression ? ` Data file: ${formatCatalogFile({ compression: data.catalogCompression, bytes: data.catalogBytes })}.` : '';
+  $('method-dates').textContent = `Updated ${date(data.importedAt)}. Individual games may have older data.${fileInfo}`;
 }
 
 function getView() { return { filters: state, highlight: highlightedFeature, matching, displayed: view.length, featureColumns: visibleFeatures.length, maxScore: latestResult?.maxScore, page: latestResult?.page, pageCount: latestResult?.pageCount, games: view.map(({ id, name, score, count, rank, reviews, positivePercent, releaseISO, earlyAccess, tagIds }) => ({ id, name, score, count, rank, reviews, positivePercent, releaseISO, earlyAccess, tags: (tagIds ?? []).map(id => data.tags[id]) })) }; }
@@ -788,5 +856,7 @@ window.addEventListener('popstate', () => { if (ready) loadURL(); });
   layoutObserver.observe($('matrix-region'));
   layoutObserver.observe(document.querySelector('main'));
 
-window.steamFeatureAtlas = Object.freeze({ getView, setFilters });
+
+$('catalog-retry').addEventListener('click', () => startBackgroundCatalog(true));
+window.steamFeatureAtlas = Object.freeze({ getView, setFilters, getLoadState: () => ({ fullReady, backgroundStarted, backgroundError, pendingFullQuery, fullReadyAt, partial: data.progressive?.partial === true }) });
 startWorker();

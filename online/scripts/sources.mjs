@@ -11,6 +11,7 @@ import { validateRefreshState } from './refresh-state.mjs';
 import { validateSteamArchiveSnapshot } from './steam-archive-snapshot.mjs';
 import { STEAM_DATA_FORMAT, validateSteamDataDescriptor } from './steam-data.mjs';
 import { validateBinaryDescriptor, BINARY_MAX_BYTES, COMPRESSED_MAX_BYTES } from '../src/catalog-descriptor.mjs';
+import { validateProgressiveDescriptor } from '../src/progressive-catalog.mjs';
 
 export const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -89,6 +90,7 @@ export function validateCatalogDescriptor(descriptor) {
   }
   for (const key of ['sha256', 'gzipSha256']) if (!/^[a-f0-9]{64}$/.test(descriptor[key])) throw new Error('Invalid prior catalog checksum');
   if (descriptor.binary !== undefined) validateBinaryDescriptor(descriptor.binary);
+  if (descriptor.progressive !== undefined) validateProgressiveDescriptor(descriptor.progressive, descriptor.binary?.sha256);
   return descriptor;
 }
 
@@ -172,12 +174,12 @@ export async function retainPreviousCatalog(previous, directory, currentDescript
     { file: descriptor.catalog, hash: descriptor.sha256, maximumBytes: 150 * 1024 * 1024 },
     { file: descriptor.compressedCatalog, hash: descriptor.gzipSha256, maximumBytes: 40 * 1024 * 1024 },
   ];
-  if (descriptor.binary) {
-    for (const [entry, maximumBytes] of [[descriptor.binary, BINARY_MAX_BYTES], [descriptor.binary.gzip, COMPRESSED_MAX_BYTES], [descriptor.binary.brotli, COMPRESSED_MAX_BYTES]]) {
+  for (const binary of [descriptor.binary, descriptor.progressive?.priority, descriptor.progressive?.remainder].filter(Boolean)) {
+    for (const [entry, maximumBytes] of [[binary, BINARY_MAX_BYTES], [binary.gzip, COMPRESSED_MAX_BYTES], [binary.brotli, COMPRESSED_MAX_BYTES]]) {
       files.push({ file: entry.file, hash: entry.sha256, size: entry.bytes, maximumBytes });
     }
   }
-  for (const { file, hash, size, maximumBytes } of files) {
+  for (const { file, hash, size, maximumBytes } of new Map(files.map(entry => [entry.file, entry])).values()) {
     const targetURL = new URL(file, previous.manifestURL);
     if (targetURL.origin !== previous.manifestURL.origin || !targetURL.pathname.startsWith(new URL('.', previous.manifestURL).pathname)) throw new Error('Prior catalog escaped its origin');
     const bytes = await download(targetURL, { maximumBytes });

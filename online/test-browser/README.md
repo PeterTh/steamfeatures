@@ -34,3 +34,14 @@ Run `highlight-checks.js` in the same way for column selection, URL persistence,
 `search-tag-checks.js` checks whitespace and cursor preservation during slow title typing, normalized matching and URLs, and clickable game-card tags cycling through required, excluded, and off. It covers synchronized picker/chip state, keyboard and touch input, cards whose games are filtered out, focus restoration, hover previews, history, reload, reset, and mobile layout. Supply a page created with `hasTouch: true` for its mobile tap checks.
 
 Run all eight harnesses in Firefox and Chromium.
+
+`catalog-checks.cjs` runs the eight interface harnesses plus blocked-download, failure/retry, search-draft and worker-handover checks against the normal `dist/` build, in Edge and Firefox. `catalog-benchmark.cjs` compares its initial loading time against the same code and records served through the full-catalogue fallback. The comparison server strips only `current.progressive` from the reference manifest, and can pace catalogue transfers at 10 Mbps with 150 ms request latency.
+
+With Playwright available to Node, run from `online/`:
+
+```sh
+node test-browser/catalog-checks.cjs
+node test-browser/catalog-benchmark.cjs
+```
+
+Set `CATALOG_PLAYWRIGHT` to the module path if Playwright is installed elsewhere. `CATALOG_BROWSERS` defaults to `edge,firefox`; `CATALOG_LOCAL_REPS` and `CATALOG_SLOW_REPS` default to 6 and 3 measured samples per variant and browser. Reports go to the ignored `test-results/` directory. The built catalogue must contain progressive descriptors; no separate prototype build is used.

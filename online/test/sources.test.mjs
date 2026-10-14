@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { brotliCompressSync, gzipSync } from 'node:zlib';
 import { readPreviousManifest, retainPreviousCatalog, sha256, validateCatalogDescriptor } from '../scripts/sources.mjs';
+import { writeBinaryCatalog, writeProgressiveCatalog } from '../scripts/catalog-package.mjs';
 
 function binaryPrevious() {
   const plain = Buffer.from('{"previous":true}');
@@ -103,5 +104,32 @@ test('binary descriptors reject unsupported formats, unpinned or escaped paths, 
     const { descriptor } = binaryPrevious();
     mutate(descriptor);
     assert.throws(() => validateCatalogDescriptor(descriptor));
+  }
+});
+
+test('retention carries both partitions and rejects corrupt transport variants', async t => {
+  const originalFetch = globalThis.fetch;
+  const source = await mkdtemp(join(tmpdir(), 'steam-atlas-retain-split-source-'));
+  const target = await mkdtemp(join(tmpdir(), 'steam-atlas-retain-split-target-'));
+  t.after(async () => { globalThis.fetch = originalFetch; await rm(source, { recursive: true, force: true }); await rm(target, { recursive: true, force: true }); });
+  const catalog = { version: 1, features: [], tags: [], games: [
+    { id: 1, name: 'Twenty', reviews: 20, featureIds: [] }, { id: 2, name: 'Nineteen', reviews: 19, featureIds: [] },
+  ] };
+  const plain = Buffer.from(JSON.stringify(catalog)), compressed = gzipSync(plain);
+  const binary = await writeBinaryCatalog(catalog, source), progressive = await writeProgressiveCatalog(catalog, source, binary.sha256);
+  const descriptor = { catalog: 'catalog.' + sha256(plain).slice(0, 16) + '.json', sha256: sha256(plain), gzipSha256: sha256(compressed), binary, progressive };
+  descriptor.compressedCatalog = descriptor.catalog + '.gz';
+  const files = new Map([[descriptor.catalog, plain], [descriptor.compressedCatalog, compressed]]), urls = [];
+  const entries = [binary, progressive.priority, progressive.remainder].flatMap(part => [part, part.gzip, part.brotli]);
+  for (const entry of entries) files.set(entry.file, await readFile(join(source, entry.file)));
+  globalThis.fetch = async url => { urls.push(String(url)); return new Response(files.get(new URL(url).pathname.split('/').at(-1))); };
+  const previous = { manifest: { current: descriptor }, manifestURL: new URL('https://example.test/atlas/data/manifest.json') };
+  assert.deepEqual(await retainPreviousCatalog(previous, target, { sha256: 'd'.repeat(64) }), descriptor);
+  assert.equal(urls.length, files.size);
+  for (const [file, bytes] of files) assert.deepEqual(await readFile(join(target, file)), bytes);
+  for (const entry of entries.slice(3)) {
+    const bytes = files.get(entry.file); files.set(entry.file, Buffer.from('Corrupt partition'));
+    await assert.rejects(retainPreviousCatalog(previous, target, { sha256: 'd'.repeat(64) }), /checksum or size mismatch/);
+    files.set(entry.file, bytes);
   }
 });

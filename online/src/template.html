@@ -85,7 +85,8 @@
       </fieldset>
     </form>
     <div id="error" class="error-banner" role="alert" hidden><p id="error-message"></p><button id="retry" type="button">Try loading again</button><button id="error-reset" type="button">Reset filters</button></div>
-    <div id="loading" class="loading-state" role="status"><span class="loading-dot"></span><span id="loading-message">Loading the complete game catalog…</span></div>
+    <p id="catalog-progress" class="language-help" role="status" hidden><span id="catalog-status"></span> <button id="catalog-retry" class="subtle-button" type="button" hidden>Retry</button></p>
+    <div id="loading" class="loading-state" role="status"><span class="loading-dot"></span><span id="loading-message">Loading the game catalog…</span></div>
     <section id="results" aria-label="Matching games" hidden>
       <div class="table-toolbar"><div class="result-info"><p id="result-summary" role="status" aria-live="polite"></p><button id="highlight-chip" class="filter-chip highlight-chip" type="button" hidden></button></div><div class="legend"><span><b class="check">✓</b> <span id="legend-listed-label">Listed</span></span><span id="legend-playable" hidden><b class="check playable">✓</b> Playable</span><span><b class="check negative">−</b> Negative score</span><span><b class="legend-dash">–</b> <span id="legend-absent-label">Not listed</span></span><span><b>?</b> <span id="legend-unknown-label">Unknown</span></span><span class="hover-hint">Hover or tap icons for details</span></div></div>
       <p id="view-note" class="view-note" hidden></p>

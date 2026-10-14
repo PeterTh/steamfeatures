@@ -1,8 +1,8 @@
 const assert = require('node:assert/strict');
 const { readFile, mkdir, writeFile } = require('node:fs/promises');
 const { resolve } = require('node:path');
-const { chromium, firefox } = require(process.env.PROTOTYPE_PLAYWRIGHT || 'playwright-core');
-const online = resolve(__dirname, '../..');
+const { chromium, firefox } = require(process.env.CATALOG_PLAYWRIGHT || 'playwright-core');
+const online = resolve(__dirname, '..');
 
 function observeWorkers({ holdFullReady = false } = {}) {
   const NativeWorker = window.Worker;
@@ -18,11 +18,12 @@ function observeWorkers({ holdFullReady = false } = {}) {
       super.postMessage(message, ...rest);
     }
     addEventListener(type, listener, ...rest) {
-      if (type !== 'message' || !holdFullReady) return super.addEventListener(type, listener, ...rest);
+      if (type !== 'message') return super.addEventListener(type, listener, ...rest);
       return super.addEventListener(type, event => {
-        if (this.index === 1 && event.data.type === 'ready') {
+        if (event.data.type === 'ready') this.files = event.data.progressive?.files;
+        if (holdFullReady && this.index === 1 && event.data.type === 'ready') {
           window.releaseFullReady = () => listener(event); window.fullReadyHeld = true;
-        } else if (this.index === 0 && event.data.type === 'result' && window.holdPriorityResults) {
+        } else if (holdFullReady && this.index === 0 && event.data.type === 'result' && window.holdPriorityResults) {
           window.releasePriorityResult = () => listener(event); window.priorityResultHeld = true;
         } else listener(event);
       }, ...rest);
@@ -31,16 +32,25 @@ function observeWorkers({ holdFullReady = false } = {}) {
 }
 
 async function main() {
-  const { createPrototypeServer } = await import('./server.mjs');
-  const server = await createPrototypeServer();
-  const manifest = JSON.parse(await readFile(resolve(online, '.cache/progressive-catalog/data/manifest.json'), 'utf8'));
-  const reportPath = resolve(online, 'test-results/benchmarks/progressive-catalog-checks-2026-10-13.json');
+  const { createCatalogServer } = await import('./catalog-server.mjs');
+  const server = await createCatalogServer();
+  const manifest = JSON.parse(await readFile(resolve(online, 'dist/data/manifest.json'), 'utf8'));
+  const reportPath = resolve(online, 'test-results/browser/catalog-loading-checks.json');
   await mkdir(resolve(reportPath, '..'), { recursive: true });
   const report = { verifiedAt: new Date().toISOString(), browsers: [] }, activeBrowsers = [];
   const settled = page => page.waitForFunction(() => window.steamFeatureAtlas?.getView().page && !document.getElementById('results').hidden && !document.getElementById('results').hasAttribute('aria-busy'));
   const getView = page => page.evaluate(() => window.steamFeatureAtlas.getView());
+  const fileInfo = async page => {
+    const loaded = await page.evaluate(() => ({ files: window.catalogWorkers.findLast(worker => worker.active && worker.files).files,
+      text: document.getElementById('method-dates').textContent }));
+    const labels = { priority: 'Initial data file', remainder: 'Second data file' }, compressionNames = { brotli: 'Brotli', gzip: 'gzip', uncompressed: 'uncompressed' };
+    return Object.entries(loaded.files).every(([part, file]) => {
+      const descriptor = manifest.current.progressive[part], bytes = file.compression === 'uncompressed' ? descriptor.bytes : descriptor[file.compression].bytes;
+      return loaded.text.includes(labels[part] + ': ' + compressionNames[file.compression] + ' (' + (bytes / 1e6).toFixed(2) + ' MB).');
+    });
+  };
   try {
-    for (const name of (process.env.PROTOTYPE_BROWSERS || 'edge,firefox').split(',')) {
+    for (const name of (process.env.CATALOG_BROWSERS || 'edge,firefox').split(',')) {
       const browser = name === 'edge' ? await chromium.launch({ channel: 'msedge', headless: true }) : await firefox.launch({ headless: true });
       activeBrowsers.push(browser);
       const result = { browser: name, version: browser.version(), progressive: [], suites: [] }; report.browsers.push(result);
@@ -55,10 +65,11 @@ async function main() {
         const initial = await getView(reference);
         const page = await gated.newPage(), errors = [];
         page.on('pageerror', error => errors.push(error.message));
-        await gated.route('**/' + manifest.progressive.remainder.file + '*', async route => { await gate; await route.continue(); });
-        await page.goto(server.baseURL + '/local/prototype/'); await settled(page);
+        await gated.route('**/' + manifest.current.progressive.remainder.file + '*', async route => { await gate; await route.continue(); });
+        await page.goto(server.baseURL + '/local/current/'); await settled(page);
         assert.deepEqual(await getView(page), initial);
         checked('Default results are complete while the remainder is unavailable', !(await page.evaluate(() => window.steamFeatureAtlas.getLoadState().fullReady)));
+        checked('Background loading is silent and reports only the initial file until completion', await fileInfo(page) && await page.evaluate(() => document.getElementById('catalog-progress').hidden && !document.getElementById('method-dates').textContent.includes('Second data file:')));
         await page.evaluate(() => window.steamFeatureAtlas.setFilters({ minReviews: 0 }));
         await page.waitForFunction(() => window.steamFeatureAtlas.getLoadState().pendingFullQuery);
         checked('Lower review thresholds wait rather than presenting incomplete results', await page.evaluate(() => document.getElementById('results').hasAttribute('aria-busy') && window.steamFeatureAtlas.getView().matching > 0));
@@ -77,11 +88,13 @@ async function main() {
         assert.deepEqual(await getView(page), await getView(reference));
         checked('Finishing the background load applies the latest waiting query exactly once', await page.evaluate(() => window.steamFeatureAtlas.getLoadState().fullReady && !window.steamFeatureAtlas.getLoadState().pendingFullQuery));
         checked('A queued low-review query runs once on the sole surviving worker', await page.evaluate(() => window.catalogWorkers.filter(worker => worker.active).length === 1 && !window.catalogWorkers[0].active && window.catalogWorkers[1].queries.length === 1));
-        await page.goto(server.baseURL + '/local/prototype/?minReviews=0&ea=1&release=all&highlight=steam-cloud'); await settled(page);
+        checked('Completing the background index adds the second file with its actual compression and size', await fileInfo(page) && await page.evaluate(() => document.getElementById('method-dates').textContent.includes('Second data file:')));
+        await page.goto(server.baseURL + '/local/current/?minReviews=0&ea=1&release=all&highlight=steam-cloud'); await settled(page);
         await reference.goto(server.baseURL + '/local/baseline/?minReviews=0&ea=1&release=all&highlight=steam-cloud'); await settled(reference);
         assert.deepEqual(await getView(page), await getView(reference));
         checked('Cold shared links below 20 reviews use both partitions before showing results', !(await page.evaluate(() => window.steamFeatureAtlas.getLoadState().partial)));
         checked('Cold low-review links build only one worker', await page.evaluate(() => window.catalogWorkers.length === 1 && window.catalogWorkers[0].active));
+        checked('Cold low-review links report both individual files rather than a combined first-file size', await fileInfo(page));
         checked('Progressive transitions produce no page errors', errors.length === 0);
       } finally { release(); await gated.close(); await baseline.close(); }
 
@@ -89,7 +102,7 @@ async function main() {
       await handoverContext.addInitScript(observeWorkers, { holdFullReady: true });
       try {
         const page = await handoverContext.newPage(), reference = await handoverContext.newPage();
-        await page.goto(server.baseURL + '/local/prototype/'); await settled(page);
+        await page.goto(server.baseURL + '/local/current/'); await settled(page);
         await page.waitForFunction(() => window.fullReadyHeld, null, { timeout: 60000 });
         const initial = await getView(page);
         await page.locator('#search').focus();
@@ -128,7 +141,7 @@ async function main() {
       try {
         const page = await typingContext.newPage();
         await page.addInitScript(observeWorkers, { holdFullReady: true });
-        await page.goto(server.baseURL + '/local/prototype/'); await settled(page);
+        await page.goto(server.baseURL + '/local/current/'); await settled(page);
         await page.evaluate(() => window.steamFeatureAtlas.setFilters({ minReviews: 0 }));
         await page.waitForFunction(() => window.fullReadyHeld, null, { timeout: 60000 });
         await page.locator('#search').fill('Portal  ');
@@ -141,9 +154,9 @@ async function main() {
       const failureContext = await browser.newContext();
       try {
         const page = await failureContext.newPage();
-        const block = '**/' + manifest.progressive.remainder.file + '*';
+        const block = '**/' + manifest.current.progressive.remainder.file + '*';
         await failureContext.route(block, route => route.fulfill({ status: 503, body: 'Unavailable remainder for failure check' }));
-        await page.goto(server.baseURL + '/local/prototype/'); await settled(page);
+        await page.goto(server.baseURL + '/local/current/'); await settled(page);
         const initial = await getView(page);
         await page.waitForFunction(() => window.steamFeatureAtlas.getLoadState().backgroundError, null, { timeout: 60000 });
         assert.deepEqual(await getView(page), initial);
@@ -161,7 +174,7 @@ async function main() {
           try {
             const page = await context.newPage();
             const check = (0, eval)(await readFile(resolve(online, 'test-browser', harness + '.js'), 'utf8'));
-            const checked = await check(page, { baseURL: server.baseURL + '/local/prototype/' });
+            const checked = await check(page, { baseURL: server.baseURL + '/local/current/' });
             result.suites.push({ harness, ...checked });
             await writeFile(reportPath, JSON.stringify(report, null, 2) + '\n');
             console.log(JSON.stringify({ browser: name, harness, passed: checked.passed }));

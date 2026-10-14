@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { partitionCatalog, mergeCatalogPartitions, queryUsesPriority } from '../prototypes/progressive-catalog/catalog.mjs';
+import { partitionCatalog } from '../scripts/catalog-partitions.mjs';
+import { mergeCatalogPartitions, queryUsesPriority } from '../src/progressive-catalog.mjs';
 import { prepareCatalog, runQuery } from '../src/query.mjs';
 import { encodeTagIndex } from '../scripts/normalize.mjs';
 import { encodeBinaryCatalog } from '../scripts/catalog-binary.mjs';

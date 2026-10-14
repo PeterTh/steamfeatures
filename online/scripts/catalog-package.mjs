@@ -4,7 +4,9 @@ import { resolve } from 'node:path';
 import { brotliCompressSync, constants, gzipSync } from 'node:zlib';
 import { BINARY_FORMAT } from '../src/catalog-binary.mjs';
 import { validateBinaryDescriptor } from '../src/catalog-descriptor.mjs';
+import { validateProgressiveDescriptor, PRIORITY_MIN_REVIEWS } from '../src/progressive-catalog.mjs';
 import { encodeBinaryCatalog } from './catalog-binary.mjs';
+import { partitionCatalog } from './catalog-partitions.mjs';
 
 const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
 
@@ -28,4 +30,12 @@ export async function writeBinaryCatalog(catalog, dataDirectory) {
   await writeFile(resolve(dataDirectory, descriptor.gzip.file), gzip);
   await writeFile(resolve(dataDirectory, descriptor.brotli.file), brotli);
   return descriptor;
+}
+
+/** Publish the early-results archive and the remaining games with global counts. */
+export async function writeProgressiveCatalog(catalog, dataDirectory, snapshot) {
+  const { priority, remainder, statistics } = partitionCatalog(catalog);
+  return validateProgressiveDescriptor({ version: 1, minReviews: PRIORITY_MIN_REVIEWS, snapshot,
+    priority: await writeBinaryCatalog(priority, dataDirectory),
+    remainder: await writeBinaryCatalog(remainder, dataDirectory), statistics }, snapshot);
 }

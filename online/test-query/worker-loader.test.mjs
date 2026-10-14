@@ -8,6 +8,8 @@ import { BINARY_MAX_BYTES, COMPRESSED_MAX_BYTES } from '../src/catalog-descripto
 import { encodeBinaryCatalog } from '../scripts/catalog-binary.mjs';
 import { features } from '../src/features.mjs';
 import { normalizeSteamEnrichment } from '../scripts/steam-enrichment.mjs';
+import { partitionCatalog } from '../scripts/catalog-partitions.mjs';
+import { runQuery } from '../src/query.mjs';
 
 const catalog = { version: 1, importedAt: '2026-10-08T00:00:00Z', features: [], games: [] };
 const bytes = Buffer.from(JSON.stringify(catalog));
@@ -281,6 +283,104 @@ test('oversized content-length and oversized manifests fail within read limits',
   await assert.rejects(loadCatalog(manifestURL, { ...options,
     fetchImpl: async () => new Response(' '.repeat(2 * 1024 * 1024 + 1)),
   }), /manifest size.*limit/);
+});
+
+function progressiveSetup() {
+  const source = { ...catalog, tags: ['RPG'], games: [
+    { id: 1, name: 'Twenty', reviews: 20, featureIds: [], featureDataKnown: true, earlyAccess: false, releaseStatus: 'released', tagIds: [0] },
+    { id: 2, name: 'Nineteen', reviews: 19, featureIds: [], featureDataKnown: true, earlyAccess: false, releaseStatus: 'released', tagIds: [0] },
+    { id: 3, name: 'Unknown', reviews: null, featureIds: [], featureDataKnown: true, earlyAccess: false, releaseStatus: 'released' },
+  ] };
+  const files = new Map();
+  const pack = value => {
+    const raw = Buffer.from(encodeBinaryCatalog(value)), gzip = gzipSync(raw), brotli = brotliCompressSync(raw);
+    const file = 'catalog.' + hash(raw).slice(0, 16) + '.bin';
+    const descriptor = { format: BINARY_FORMAT, file, sha256: hash(raw), bytes: raw.length,
+      gzip: { file: file + '.gz', sha256: hash(gzip), bytes: gzip.length },
+      brotli: { file: file + '.br', sha256: hash(brotli), bytes: brotli.length } };
+    files.set(file, raw); files.set(file + '.gz', gzip); files.set(file + '.br', brotli);
+    return descriptor;
+  };
+  const parts = partitionCatalog(source), binary = pack(source);
+  const progressive = { version: 1, minReviews: 20, snapshot: binary.sha256, priority: pack(parts.priority),
+    remainder: pack(parts.remainder), statistics: parts.statistics };
+  const value = { ...manifest, current: { ...manifest.current, binary, progressive } }, requests = [];
+  const fetchImpl = async (url, options) => {
+    requests.push({ url, cache: options.cache });
+    if (url === manifestURL) return new Response(JSON.stringify(value));
+    const bytes = files.get(new URL(url).pathname.split('/').at(-1));
+    return bytes ? new Response(bytes) : new Response('Missing partition', { status: 404 });
+  };
+  return { source, value, files, requests, options: { origin, fetchImpl, cryptoImpl: webcrypto, DecompressionStreamImpl: BothCompressionFormats } };
+}
+
+test('progressive loading shows complete 20+ results without requesting the remainder and pins later loads to that snapshot', async () => {
+  const fixture = progressiveSetup();
+  const initial = await loadCatalog(manifestURL, { ...fixture.options, minReviews: 20 });
+  assert.equal(initial.progressive.partial, true);
+  assert.deepEqual(runQuery(initial.catalog, {}), runQuery(fixture.source, {}));
+  assert.deepEqual(initial.progressive.plan.statistics.tagCounts, [2]);
+  assert.equal(initial.progressive.plan.statistics.gameCount, 3);
+  assert.equal(fixture.requests.length, 2);
+  fixture.value.current.progressive = null; // A later deployment cannot change the pinned background plan.
+  const complete = await loadCatalog(manifestURL, { ...fixture.options, plan: initial.progressive.plan });
+  assert.equal(complete.progressive.partial, false);
+  assert.equal(fixture.requests.filter(request => request.url === manifestURL).length, 1);
+  assert.deepEqual(runQuery(complete.catalog, { minReviews: 0 }), runQuery(fixture.source, { minReviews: 0 }));
+  for (const part of ['priority', 'remainder']) assert.deepEqual(complete.progressive.files[part], {
+    compression: 'brotli', bytes: initial.progressive.plan[part].brotli.bytes,
+  });
+});
+
+test('cold low-review links load both partitions and per-file metadata follows compression fallback', async () => {
+  const fixture = progressiveSetup();
+  const plan = fixture.value.current.progressive;
+  fixture.files.set(plan.remainder.brotli.file, Buffer.from('Corrupt Brotli'));
+  const loaded = await loadCatalog(manifestURL, { ...fixture.options, minReviews: 19 });
+  assert.equal(loaded.progressive.partial, false);
+  assert.deepEqual(runQuery(loaded.catalog, { minReviews: 0 }), runQuery(fixture.source, { minReviews: 0 }));
+  assert.deepEqual(loaded.progressive.files.priority, { compression: 'brotli', bytes: plan.priority.brotli.bytes });
+  assert.deepEqual(loaded.progressive.files.remainder, { compression: 'gzip', bytes: plan.remainder.gzip.bytes });
+  assert.equal(loaded.bytes, plan.priority.brotli.bytes + plan.remainder.gzip.bytes);
+});
+
+test('malformed progressive snapshots, paths, thresholds and counts fail before downloading any partition', async () => {
+  for (const mutate of [
+    plan => { plan.snapshot = 'd'.repeat(64); }, plan => { plan.minReviews = 19; },
+    plan => { plan.priority.file = '../escaped.bin'; }, plan => { plan.remainder.gzip.file = 'https://other.example/catalog.bin.gz'; },
+    plan => { plan.statistics.tagCounts = [-1]; }, plan => { plan.statistics.knownTagCount = 4; },
+    plan => { plan.statistics.languageCounts = []; },
+  ]) {
+    const fixture = progressiveSetup(); mutate(fixture.value.current.progressive);
+    await assert.rejects(loadCatalog(manifestURL, { ...fixture.options, minReviews: 20 }), /progressive|descriptor/);
+    assert.equal(fixture.requests.length, 1);
+  }
+});
+
+test('worker rejects broad queries on the initial index and reports full-catalogue picker counts', async t => {
+  const fixture = progressiveSetup(), oldSelf = globalThis.self, messages = [];
+  let onMessage;
+  globalThis.self = { addEventListener(type, listener) { if (type === 'message') onMessage = listener; }, postMessage(message) { messages.push(message); } };
+  t.mock.method(globalThis, 'fetch', fixture.options.fetchImpl);
+  try {
+    await import('../src/filter-worker.js?progressive-worker-message-test');
+    await onMessage({ data: { type: 'init', manifestURL, minReviews: 20 } });
+    assert.equal(messages[0].type, 'ready'); assert.equal(messages[0].gameCount, 3);
+    assert.deepEqual(messages[0].tagCounts, [2]); assert.equal(messages[0].progressive.partial, true);
+    await onMessage({ data: { type: 'query', requestId: 1, query: { minReviews: 0 } } });
+    assert.equal(messages[1].type, 'error'); assert.match(messages[1].message, /complete catalog/);
+    await onMessage({ data: { type: 'query', requestId: 2, query: { minReviews: 20 } } });
+    assert.equal(messages[2].result.total, 1);
+    await onMessage({ data: { type: 'init', mode: 'full', plan: messages[0].progressive.plan } });
+    assert.equal(messages[3].type, 'ready'); assert.equal(messages[3].progressive.partial, false);
+    await onMessage({ data: { type: 'query', requestId: 3, query: { minReviews: 0 } } });
+    assert.equal(messages[4].result.total, 3);
+    // A cached older app sends no minReviews hint and cannot manage a handover.
+    await onMessage({ data: { type: 'init', manifestURL } });
+    assert.equal(messages[5].type, 'ready'); assert.equal(messages[5].progressive.partial, false);
+    await onMessage({ data: { type: 'query', requestId: 4, query: { minReviews: 0 } } });
+    assert.equal(messages[6].result.total, 3);
+  } finally { if (oldSelf === undefined) delete globalThis.self; else globalThis.self = oldSelf; }
 });
 
 test('worker ready includes global tag frequencies and queries keep row tag indices', async () => {
