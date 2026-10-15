@@ -81,7 +81,9 @@ async function fetchResponse(url, fetchImpl, cache, manifestAddress) {
 
 async function downloadBytes(url, descriptor, fetchImpl, cryptoImpl, manifestAddress, maximum, label) {
   const response = await fetchResponse(url, fetchImpl, 'force-cache', manifestAddress);
-  const contentLength = response.headers.get('content-length');
+  // Fetch removes HTTP Content-Encoding, whose Content-Length describes the
+  // encoded transfer. Bound and verify the fetched archive itself below.
+  const contentLength = response.headers.get('content-encoding') ? null : response.headers.get('content-length');
   if (contentLength !== null && /^\d+$/.test(contentLength) && Number(contentLength) > descriptor.bytes) {
     await response.body?.cancel();
     throw new Error(`The ${label} size does not match its manifest.`);

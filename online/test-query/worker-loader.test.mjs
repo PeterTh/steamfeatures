@@ -155,6 +155,38 @@ test('Brotli-capable browsers fetch and verify only the binary Brotli payload', 
   ]);
 });
 
+test('HTTP Content-Encoding can increase wire size without triggering a binary fallback', async () => {
+  for (const [DecompressionStreamImpl, compression, payload, suffix] of [
+    [BothCompressionFormats, 'brotli', binaryBrotli, '.br'],
+    [GzipOnly, 'gzip', binaryGzip, '.gz'],
+    [null, 'uncompressed', binaryBytes, ''],
+  ]) {
+    // Fetch returns the archive after decoding HTTP gzip, while the header still
+    // describes the outer gzip body. Level 0 guarantees that body is larger.
+    const wireBytes = gzipSync(payload, { level: 0 }).length;
+    assert.ok(wireBytes > payload.length);
+    const { requests, options } = binarySetup({ headers: { 'content-encoding': 'gzip', 'content-length': wireBytes } });
+    const loaded = await loadCatalog(manifestURL, { ...options, DecompressionStreamImpl });
+    assert.deepEqual(loaded.catalog, catalog);
+    assert.equal(loaded.compression, compression);
+    assert.equal(loaded.bytes, payload.length);
+    assert.deepEqual(paths(requests), [`/atlas/data/${binaryFilename}${suffix}`]);
+  }
+});
+
+test('HTTP Content-Encoding preserves archive byte limits and checksum verification', async () => {
+  for (const [brotli, error] of [
+    [binaryBrotli.subarray(1), /brotli binary catalog size does not match/],
+    [Buffer.concat([binaryBrotli, Buffer.alloc(1)]), /brotli binary catalog size does not match/],
+    [flipped(binaryBrotli), /brotli binary catalog checksum does not match/],
+  ]) {
+    const { requests, options } = binarySetup({ brotli, gzipStatus: 404, plainStatus: 404,
+      headers: { 'content-encoding': 'gzip', 'content-length': '1' } });
+    await assert.rejects(loadCatalog(manifestURL, options), error);
+    assert.equal(requests.length, 4);
+  }
+});
+
 test('unsupported Brotli is detected before download and goes directly to binary gzip', async () => {
   const { requests, options } = binarySetup();
   const loaded = await loadCatalog(manifestURL, { ...options, DecompressionStreamImpl: GzipOnly });
