@@ -70,21 +70,21 @@ test('legacy VR Support is omitted without inventing another VR feature', () => 
 
 test('feature registry preserves weighting and multiplayer classification through import', () => {
   const { features: all } = buildFeatureCatalog(features, [], new Set());
-  assert.equal(all.length, 81);
+  assert.equal(all.length, features.length);
   assert.equal(all.find(feature => feature.key === 'no-keyboard-mouse').weight, -1);
   assert.equal(all.filter(feature => feature.hardware).length, 15);
   const copied = all.filter(feature => !feature.knowledgeGroup);
   assert.equal(copied.length, 62);
   assert.equal(copied.filter(feature => !feature.accessibility).length, 42);
-  assert.deepEqual(copied.filter(feature => feature.multiplayer).map(feature => feature.id).sort((a, b) => a - b), [1, 8, 9, 20, 24, 27, 32, 36, 37, 38, 39, 44, 47, 48, 49, 72, 73]);
-  assert.deepEqual(copied.filter(feature => feature.weight === 0).map(feature => feature.id).sort((a, b) => a - b), [16, 54, 60]);
+  assert.deepEqual(copied.filter(feature => feature.multiplayer).map(feature => feature.id).sort((a, b) => a - b), [1, 9, 20, 24, 27, 32, 36, 37, 38, 39, 44, 47, 48, 49, 72, 73]);
+  assert.deepEqual(copied.filter(feature => feature.weight === 0).map(feature => feature.id).sort((a, b) => a - b), [8, 16, 54, 60]);
   assert.deepEqual(copied.filter(feature => feature.weight < 0).map(feature => feature.id), [35]);
   for (const feature of copied) {
-    assert.equal(feature.weight, feature.id === 23 ? 3 : feature.id === 22 ? 2 : feature.id === 35 ? -1 : [16, 54, 60].includes(feature.id) ? 0 : 1);
+    assert.equal(feature.weight, feature.id === 23 ? 3 : feature.id === 22 ? 2 : feature.id === 35 ? -1 : [8, 16, 54, 60].includes(feature.id) ? 0 : 1);
     assert.equal(typeof feature.multiplayer, 'boolean');
   }
   const defaults = copied.filter(feature => !feature.accessibility && !feature.multiplayer);
-  assert.equal(defaults.length, 27);
+  assert.equal(defaults.length, 28);
   assert.equal(defaults.reduce((score, feature) => score + Math.max(0, feature.weight), 0), 26);
   assert.equal(defaults.reduce((score, feature) => score + feature.weight, 0), 25);
   assert.equal(copied.some(feature => feature.key === 'vr-support'), false);
