@@ -1,5 +1,5 @@
 /** Shared, dependency-free catalog queries for the UI, worker, and Node tests. */
-import { isFeatureKnown } from './extra-features.mjs';
+import { isFeatureKnown, featureWeight } from './extra-features.mjs';
 import { presentationFeatures, featureColumns, compatibilityTargets } from './feature-presentation.mjs';
 import { LANGUAGE_KINDS, decodeLanguageBits, languageFlags, languageIndex } from './languages.mjs';
 export const PAGE_SIZE = 50;
@@ -321,10 +321,11 @@ export function prepareCatalog(catalog) {
     if (known) for (const id of featureIds) {
       if (!countedIds.has(id)) continue;
       const feature = index.byId.get(id);
+      const weight = featureWeight(game, feature);
       const group = (feature.accessibility ? 1 : 0) | (feature.multiplayer ? 2 : 0) | (feature.hardware ? 4 : 0);
       for (let mask = 0; mask < 8; mask += 1) if ((group & mask) === group) {
         counts[mask] += 1;
-        scores[mask] += feature.weight ?? 1;
+        scores[mask] += weight;
       }
     }
     const reviews = knownReviews(game.reviews);

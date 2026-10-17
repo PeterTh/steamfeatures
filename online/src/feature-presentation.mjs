@@ -1,4 +1,4 @@
-import { extraFeatures, hardwareDevices, isFeatureKnown } from './extra-features.mjs';
+import { extraFeatures, hardwareDevices, isFeatureKnown, featureWeight } from './extra-features.mjs';
 
 export const compatibilityTargets = hardwareDevices.map(device => ({
   key: device.key, name: device.name, parameter: device.key.slice('steam-'.length),
@@ -61,10 +61,10 @@ export function columnState(game, column) {
       mark: positive ? '✓' : status === 'playable' ? '✓' : status === 'unsupported' ? '−' : '?',
       className: positive ? 'check' : status === 'playable' ? 'check playable' : status === 'unsupported' ? 'check negative' : 'dash' };
   }
-  const known = isFeatureKnown(game, column), listed = game.featureIds.includes(column.id), negative = listed && column.weight < 0;
-  const neutral = listed && column.weight === 0;
+  const known = isFeatureKnown(game, column), listed = game.featureIds.includes(column.id), weight = featureWeight(game, column), negative = listed && weight < 0;
+  const neutral = listed && weight === 0;
   return { status: !known ? 'unknown' : listed ? 'listed' : 'not-listed', listed,
-    label: !known ? 'Unknown' : listed ? `Listed${negative ? ' · −' + Math.abs(column.weight) + ' score point' : neutral ? ' · 0 score points' : ''}` : 'Not listed',
+    label: !known ? 'Unknown' : listed ? `Listed${negative ? ' · −' + Math.abs(weight) + ' score point' : neutral ? ' · 0 score points' : ''}` : 'Not listed',
     supported: known ? String(listed) : 'unknown', mark: !known ? '?' : negative ? '−' : listed ? '✓' : '–',
     className: listed ? `check${negative ? ' negative' : neutral ? ' neutral' : ''}` : 'dash' };
 }
@@ -85,12 +85,13 @@ export function disclosureDetails(game, column) {
   if (column.id === 8 && game.featureIds.includes(8)) return {
     summary: 'Valve Anti-Cheat advertised · 0 score points', description: 'Steam lists Valve Anti-Cheat support for this game.', facts: []
   };
-  if (column.id !== 10005 || (!data.antiCheat && !data.vac && !game.featureIds.includes(8))) return null;
-  const anti = data.antiCheat ?? {}, vac = data.vac || game.featureIds.includes(8), facts = [];
+  if (column.id !== 10005 || !data.antiCheat) return null;
+  const anti = data.antiCheat, vac = data.vac || game.featureIds.includes(8), facts = [];
   if (vac && !/\bvac\b|valve anti-cheat/i.test(anti.name ?? '')) facts.push(['Valve Anti-Cheat', 'Also advertised by Steam']);
   if (typeof anti.kernelMode === 'boolean') facts.push(['Kernel mode', anti.kernelMode ? 'Yes' : 'No']);
   if (typeof anti.bootProtection === 'boolean') facts.push(['Boot protection', anti.bootProtection ? anti.bootProtectionName || 'Yes' : 'No']);
   if (typeof anti.uninstallsCompletely === 'boolean') facts.push(['Fully removed on uninstall', anti.uninstallsCompletely ? 'Yes' : 'No']);
-  return { summary: 'Anti-cheat disclosed · 0 score points', facts,
-    description: anti.name || (vac ? 'Valve Anti-Cheat' : 'Anti-cheat software is disclosed; its name is not available in this snapshot.') };
+  return { summary: `${game.featureIds.includes(column.id) ? 'Third-party anti-cheat disclosed'
+    : isFeatureKnown(game, column) ? 'Only Valve Anti-Cheat disclosed' : 'Third-party anti-cheat unknown'} · ${game.featureIds.includes(column.id) && featureWeight(game, column) < 0 ? '−1 score point' : '0 score points'}`, facts,
+    description: anti.name || 'Anti-cheat software is disclosed; its name is not available in this snapshot.' };
 }

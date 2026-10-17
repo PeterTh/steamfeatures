@@ -51,6 +51,16 @@ function requiresThirdPartyAccount(value) {
   return true;
 }
 
+function hasThirdPartyAntiCheat(value, vac) {
+  if (!object(value)) return value == null ? false : null;
+  const name = disclosureText(value.name);
+  // An unnamed message alongside VAC does not establish another provider.
+  if (!name) return vac ? null : true;
+  const other = name.replace(/\b(?:valve\s+anti[-\s]?cheat|vac(?:\s+live)?)\b/gi, '')
+    .replace(/[\s()[\],;:/+&.\-–—™®]/g, '');
+  return Boolean(other);
+}
+
 export function normalizeSteamDisclosures(record) {
   const store = record.store?.success === 1 ? record.store : undefined;
   const preferAppInfo = record.store_result != null && record.store_result !== 1 || store?.visible === false;
@@ -74,9 +84,8 @@ export function normalizeSteamDisclosures(record) {
     if (disclosureText(extra.drm_activation_limit)) details.drmActivationLimit = extra.drm_activation_limit.trim();
     if (account) { details.account = account; details.accountRequired = required; }
     if (typeof extra.user_account_third_party_link_to_steam === 'boolean') details.accountLinking = extra.user_account_third_party_link_to_steam;
-    // Even an empty message is Steam's explicit anti-cheat disclosure.
     const antiCheat = object(extra.anticheat);
-    observe('anti-cheat', 10005, vac || antiCheat ? true : extra.anticheat == null ? false : null);
+    observe('third-party-anti-cheat', 10005, hasThirdPartyAntiCheat(extra.anticheat, vac));
     if (antiCheat) {
       details.antiCheat = {};
       if (disclosureText(extra.anticheat.name)) details.antiCheat.name = extra.anticheat.name.trim();
@@ -85,7 +94,7 @@ export function normalizeSteamDisclosures(record) {
       }
       if (disclosureText(extra.anticheat.boot_protection_name)) details.antiCheat.bootProtectionName = extra.anticheat.boot_protection_name.trim();
     }
-  } else if (vac) observe('anti-cheat', 10005, true);
+  }
   if (vac) details.vac = true;
   return { featureIds, knownFeatureGroups, disclosures: Object.keys(details).length ? details : undefined };
 }

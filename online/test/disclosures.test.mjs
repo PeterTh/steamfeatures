@@ -64,18 +64,71 @@ test('mode-specific account requirements count while wholly optional accounts do
   }
 });
 
-test('anti-cheat message presence includes unnamed implementations and VAC supplies a positive fallback', () => {
+test('TAC includes unnamed disclosures without VAC but leaves missing source sections unknown', () => {
   const unnamed = project({ anticheat: {} });
   assert.ok(unnamed.featureIds.includes(10005));
   assert.match(disclosureDetails(unnamed, feature(10005)).description, /not available in this snapshot/);
   const absent = project({});
   assert.ok(!absent.featureIds.includes(10005));
-  assert.ok(absent.knownFeatureGroups.includes('anti-cheat'));
+  assert.ok(absent.knownFeatureGroups.includes('third-party-anti-cheat'));
   const unknown = normalizeSteamDisclosures({});
-  assert.ok(!unknown.knownFeatureGroups.includes('anti-cheat'));
+  assert.ok(!unknown.knownFeatureGroups.includes('third-party-anti-cheat'));
   const vac = normalizeSteamDisclosures({ appinfo: { common: { category: { category_8: '1' } } } });
-  assert.ok(vac.featureIds.includes(10005));
-  assert.equal(disclosureDetails(vac, feature(10005)).description, 'Valve Anti-Cheat');
+  assert.ok(!vac.featureIds.includes(10005));
+  assert.equal(columnState(vac, feature(10005)).status, 'unknown');
+  assert.equal(disclosureDetails(vac, feature(10005)), null);
+});
+
+test('TAC excludes VAC alone and lists another provider alongside VAC', () => {
+  assert.equal(feature(10005).name, 'Third-party Anti-Cheat');
+  assert.equal(feature(10005).short, 'TAC');
+  const withVac = extra => ({ ...source(extra), appinfo: { common: { category: { category_8: '1' } } } });
+  for (const name of ['VAC', 'Valve Anti-Cheat', 'VAC (Valve Anti-Cheat)', 'Valve Anti Cheat', 'VAC Live']) {
+    for (const record of [source({ anticheat: { name } }), withVac({ anticheat: { name } })]) {
+      const result = normalizeSteamDisclosures(record);
+      assert.equal(columnState(result, feature(10005)).mark, '–', name);
+      assert.match(disclosureDetails(result, feature(10005)).summary, /Only Valve Anti-Cheat/);
+    }
+  }
+  for (const name of ['BattlEye', 'Easy Anti-Cheat', 'VAC + Easy Anti-Cheat', 'Valve Anti-Cheat / BattlEye']) {
+    const result = normalizeSteamDisclosures(withVac({ anticheat: { name, kernel_mode: true } }));
+    assert.equal(columnState(result, feature(10005)).mark, '−', name);
+    assert.match(disclosureDetails(result, feature(10005)).summary, /Third-party anti-cheat disclosed/);
+    assert.deepEqual(disclosureDetails(result, feature(10005)).facts, [
+      ...(/VAC|Valve/.test(name) ? [] : [['Valve Anti-Cheat', 'Also advertised by Steam']]), ['Kernel mode', 'Yes']
+    ]);
+  }
+  const ambiguous = normalizeSteamDisclosures(withVac({ anticheat: {} }));
+  assert.equal(columnState(ambiguous, feature(10005)).status, 'unknown');
+  assert.match(disclosureDetails(ambiguous, feature(10005)).summary, /Third-party anti-cheat unknown/);
+  assert.equal(columnState(normalizeSteamDisclosures(withVac({})), feature(10005)).mark, '–');
+});
+
+test('only explicit kernel-mode TAC receives a penalty in scores, sorting and cell details', () => {
+  const games = [true, false, undefined, 'true'].map((kernel_mode, index) => ({
+    id: index + 1, name: `Example ${index + 1}`, reviews: 100, earlyAccess: false, releaseStatus: 'released', featureDataKnown: true,
+    ...project({ anticheat: { name: 'Example anti-cheat', ...(kernel_mode !== undefined ? { kernel_mode } : {}) } }),
+    featureIds: [2, 10005]
+  }));
+  for (const includeMultiplayer of [false, true]) {
+    const result = runQuery({ features, games }, { includeMultiplayer });
+    assert.deepEqual(result.rows.map(game => game.id), [2, 3, 4, 1]);
+    assert.deepEqual(result.rows.map(game => game.score), [1, 1, 1, 0]);
+    assert.equal(result.minScore, -5);
+    assert.equal(result.rows[0].count, result.rows[3].count);
+  }
+  const kernel = columnState(games[0], feature(10005));
+  assert.equal(kernel.mark, '−');
+  assert.equal(kernel.className, 'check negative');
+  assert.match(kernel.label, /−1 score point/);
+  assert.match(disclosureDetails(games[0], feature(10005)).summary, /−1 score point/);
+  for (const game of games.slice(1)) {
+    assert.equal(columnState(game, feature(10005)).className, 'check neutral');
+    assert.match(disclosureDetails(game, feature(10005)).summary, /0 score points/);
+  }
+  const vacOnly = { ...games[0], featureIds: [2, 8] };
+  assert.equal(runQuery({ features, games: [vacOnly] }).rows[0].score, 1);
+  assert.equal(columnState(vacOnly, feature(8)).className, 'check neutral');
 });
 
 test('ordinary zero-point badges are grey while hardware playable ratings retain their amber state', () => {

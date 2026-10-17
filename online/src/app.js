@@ -323,7 +323,11 @@ let compatibilityAnchor = null;
           row.append(mark, element('span', '', `${rating.label} (${rating.weight > 0 ? '+' : rating.weight < 0 ? '−' : ''}${Math.abs(rating.weight)})`)); ratings.append(row);
         }
         tip.append(ratings);
-      } else tip.append(element('p', 'tip-weight', `${weight < 0 ? '−' + Math.abs(weight) : weight} score ${Math.abs(weight) === 1 ? 'point' : 'points'}${weight === 0 ? ' · Included in raw count only' : ''}`), element('p', 'tip-fine', `${view.filter(g => g.featureSet.has(id)).length} of ${view.length} displayed games advertise this feature.`));
+      } else {
+        const weightText = f.id === 10005 ? '−1 score point for kernel mode; 0 otherwise'
+          : `${weight < 0 ? '−' + Math.abs(weight) : weight} score ${Math.abs(weight) === 1 ? 'point' : 'points'}${weight === 0 ? ' · Included in raw count only' : ''}`;
+        tip.append(element('p', 'tip-weight', weightText), element('p', 'tip-fine', `${view.filter(g => g.featureSet.has(id)).length} of ${view.length} displayed games advertise this feature.`));
+      }
       const controls = element('div', 'tip-actions');
       const highlight = element('button', 'highlight-button', f.key === highlightedFeature ? 'Clear highlight' : 'Highlight column');
       highlight.type = 'button'; highlight.dataset.featureKey = f.key; highlight.setAttribute('aria-pressed', String(f.key === highlightedFeature));

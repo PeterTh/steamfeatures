@@ -15,11 +15,16 @@ export const extraFeatures = [
   feature(10001, 'dynamic-cloud-sync', 'Dynamic Cloud Sync', 'Steam features', 'cloud', 'DYN', 'Syncs Steam Cloud saves when the game is suspended, so you can continue on another device.', 'dynamic-cloud-sync'),
   feature(10003, 'third-party-drm', 'Third-party DRM', 'Features?', 'lock', 'DRM', 'Steam discloses third-party copy protection or activation requirements. Click a game’s entry for details.', 'third-party-drm', -1),
   feature(10004, 'third-party-account', 'Third-party account required', 'Features?', 'person', 'ACC', 'A third-party account is required for the game or some of its features. Wholly optional accounts do not count. Click a game’s entry for details.', 'third-party-account', -1),
-  feature(10005, 'anti-cheat', 'Anti-cheat', 'Features?', 'shield', 'AC', 'Steam discloses anti-cheat software, including Valve Anti-Cheat. Click a game’s entry for details.', 'anti-cheat', 0),
+  { ...feature(10005, 'third-party-anti-cheat', 'Third-party Anti-Cheat', 'Features?', 'shield', 'TAC', 'Steam discloses anti-cheat software beyond Valve Anti-Cheat. Kernel-mode anti-cheat scores −1; other anti-cheat scores 0. VAC alone does not count. Click a game’s entry for details.', 'third-party-anti-cheat', 0), minWeight: -1 },
   ...hardwareDevices.flatMap(device => (device.key === 'steam-os' ? ['Untested', 'Unsupported', 'Supported'] : ['Untested', 'Unsupported', 'Playable', 'Verified']).map((status, category) =>
     feature(device.base + category, `${device.key}-${status.toLowerCase()}`, `${device.name}: ${status}`, 'Steam hardware', device.key === 'steam-frame' ? 'vr' : 'gamepad', device.short,
       `Steam's overall ${device.name} compatibility rating is ${status.toLowerCase()}.`, `${device.key}-status`, category === 1 ? -1 : category === 0 || status === 'Playable' ? 0 : 1, true)))
 ];
+
+/** TAC is neutral unless Steam explicitly discloses kernel-mode operation. */
+export function featureWeight(game, feature) {
+  return feature.id === 10005 && game.disclosures?.antiCheat?.kernelMode === true ? -1 : feature.weight ?? 1;
+}
 
 /** New fields stay unknown on old catalogs and partially accessible apps. */
 export function isFeatureKnown(game, feature) {
