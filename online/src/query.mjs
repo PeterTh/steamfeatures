@@ -2,6 +2,7 @@
 import { isFeatureKnown, featureWeight } from './extra-features.mjs';
 import { presentationFeatures, featureColumns, compatibilityTargets } from './feature-presentation.mjs';
 import { LANGUAGE_KINDS, decodeLanguageBits, languageFlags, languageIndex } from './languages.mjs';
+import { featureCodes } from './feature-codes.mjs';
 export const PAGE_SIZE = 50;
 export const DEFAULT_QUERY = Object.freeze({
   q: '', has: Object.freeze([]), not: Object.freeze([]),
@@ -44,7 +45,7 @@ function featureIndex(features) {
     byId.set(feature.id, feature);
     byKey.set(feature.key, feature);
   }
-  return { byId, byKey };
+  return { byId, byKey, codes: featureCodes(features.filter(feature => !feature.hardware)) };
 }
 
 function wholeNumber(value, fallback, minimum, label) {
@@ -96,7 +97,8 @@ function featureList(value, index, label) {
   const entries = Array.isArray(value) ? value : [value];
   const ids = new Set();
   for (const entry of entries) {
-    const feature = typeof entry === 'number' ? index.byId.get(entry) : index.byKey.get(String(entry).trim());
+    const token = String(entry).trim();
+    const feature = typeof entry === 'number' ? index.byId.get(entry) : index.byKey.get(token) ?? index.codes.resolve(token);
     if (!feature) throw new Error(`Unknown ${label} feature: ${String(entry)}.`);
     if (feature.hardware) throw new Error(`Use a compatibility filter for ${feature.name}.`);
     ids.add(feature.id);
@@ -151,7 +153,7 @@ function languageFilterList(value, index) {
   return [...new Set(entries)].sort();
 }
 
-/** has/not accept canonical numeric IDs or stable feature keys; output uses IDs. */
+/** has/not accept numeric IDs, stable keys or case-insensitive table codes; output uses IDs. */
 export function normalizeQuery(input = {}, features, tags = [], languages = []) {
   const index = featureIndex(features);
   const tagsByName = tagIndex(tags);
@@ -220,8 +222,8 @@ export function serializeQuery(input, features, tags = [], languages = []) {
   const index = featureIndex(features);
   const params = new URLSearchParams();
   if (query.q) params.set('q', query.q);
-  if (query.has.length) params.set('has', query.has.map(id => index.byId.get(id).key).sort().join(','));
-  if (query.not.length) params.set('not', query.not.map(id => index.byId.get(id).key).sort().join(','));
+  if (query.has.length) params.set('has', query.has.map(id => index.codes.token(index.byId.get(id))).sort().join(','));
+  if (query.not.length) params.set('not', query.not.map(id => index.codes.token(index.byId.get(id))).sort().join(','));
   for (const tag of query.hasTags) params.append('tag', tag);
   for (const tag of query.notTags) params.append('notTag', tag);
   for (const language of query.hasLanguages) params.append('lang', language);

@@ -74,14 +74,14 @@ export const features = [
   f([2], 'Single-player', 'Play modes', 'person', '1P', 'Play on your own without other players.'),
   f([1], 'Multi-player', 'Play modes', 'people', 'MP', 'Supports play involving multiple players.'),
   f([20], 'MMO', 'Play modes', 'globe', 'MMO', 'Massively multiplayer online play.'),
-  f([49], 'PvP', 'Play modes', 'swords', 'PvP', 'Players can compete against other players.'),
-  f([36], 'Online PvP', 'Play modes', 'swords', 'NET', 'Player-versus-player competition over the internet.'),
-  f([47], 'LAN PvP', 'Play modes', 'network', 'PvP', 'Player-versus-player competition over a local network.'),
-  f([37], 'Shared/Split Screen PvP', 'Play modes', 'split', 'PvP', 'Local competitive play on a shared or split screen.'),
+  f([49], 'PvP', 'Play modes', 'swords', 'PVP', 'Players can compete against other players.'),
+  f([36], 'Online PvP', 'Play modes', 'swords', 'OPV', 'Player-versus-player competition over the internet.'),
+  f([47], 'LAN PvP', 'Play modes', 'network', 'LPV', 'Player-versus-player competition over a local network.'),
+  f([37], 'Shared/Split Screen PvP', 'Play modes', 'split', 'SPV', 'Local competitive play on a shared or split screen.'),
   f([9], 'Co-op', 'Play modes', 'handshake', 'CO', 'Players can work together cooperatively.'),
-  f([38], 'Online Co-op', 'Play modes', 'handshake', 'NET', 'Cooperative play over the internet.'),
-  f([48], 'LAN Co-op', 'Play modes', 'network', 'CO', 'Cooperative play over a local network.'),
-  f([39], 'Shared/Split Screen Co-op', 'Play modes', 'split', 'CO', 'Local cooperative play on a shared or split screen.'),
+  f([38], 'Online Co-op', 'Play modes', 'handshake', 'OCO', 'Cooperative play over the internet.'),
+  f([48], 'LAN Co-op', 'Play modes', 'network', 'LCO', 'Cooperative play over a local network.'),
+  f([39], 'Shared/Split Screen Co-op', 'Play modes', 'split', 'SCO', 'Local cooperative play on a shared or split screen.'),
   f([24], 'Shared/Split Screen', 'Play modes', 'split', 'LOC', 'Multiple players share a screen or use a split-screen view.'),
   f([27], 'Cross-Platform Multiplayer', 'Play modes', 'cross', 'XPL', 'Multiplayer between supported platforms; the badge does not specify which platforms.'),
   f([28], 'Full controller support', 'Input', 'gamepad', 'FULL', 'The game advertises full controller support.'),
@@ -93,7 +93,7 @@ export const features = [
   f([52], 'Tracked Controller Support', 'Input', 'motion', 'TRK', 'Supports tracked motion controllers for VR.'),
   f([22], 'Steam Achievements', 'Steam features', 'trophy', 'ACH', 'Unlock achievements recorded by Steam.'),
   f([29], 'Steam Trading Cards', 'Steam features', 'cards', 'CARD', 'Participates in Steam trading cards.'),
-  f([23], 'Steam Cloud', 'Steam features', 'cloud', 'SAVE', 'Syncs supported game data through Steam Cloud.'),
+  f([23], 'Steam Cloud', 'Steam features', 'cloud', 'CLD', 'Syncs supported game data through Steam Cloud.'),
   f([15], 'Stats', 'Steam features', 'chart', 'STAT', 'Advertises Steam game statistics.'),
   f([25], 'Steam Leaderboards', 'Steam features', 'podium', 'RANK', 'Compare scores or results through Steam leaderboards.'),
   f([30, 51], 'Steam Workshop', 'Steam features', 'wrench', 'MOD', 'Shares supported community content through Steam Workshop.'),
@@ -108,10 +108,10 @@ export const features = [
   f([41], 'Remote Play on Phone', 'Remote Play', 'phone', 'PH', 'Stream and play on a phone through Steam Remote Play.'),
   f([42], 'Remote Play on Tablet', 'Remote Play', 'tablet', 'TAB', 'Stream and play on a tablet through Steam Remote Play.'),
   f([43], 'Remote Play on TV', 'Remote Play', 'monitor', 'TV', 'Stream and play on a television through Steam Remote Play.'),
-  f([44], 'Remote Play Together', 'Remote Play', 'broadcast', 'JOIN', 'Invite remote friends into supported local multiplayer through Steam.'),
+  f([44], 'Remote Play Together', 'Remote Play', 'broadcast', 'RPT', 'Invite remote friends into supported local multiplayer through Steam.'),
   f([61], 'HDR available', 'Display & VR', 'sun', 'HDR', 'Advertises high dynamic range output on supported displays.'),
   f([53], 'VR Supported', 'Display & VR', 'vr', 'OPT', 'Supports virtual reality without requiring it exclusively.'),
-  f([54], 'VR Only', 'Display & VR', 'vr', 'ONLY', 'Requires a virtual reality setup.'),
+  f([54], 'VR Only', 'Display & VR', 'vr', 'VRO', 'Requires a virtual reality setup.'),
   f([40], 'SteamVR Collectibles', 'Display & VR', 'cube', 'ITEM', 'Offers SteamVR collectible items.'),
   f([13], 'Captions available', 'Accessibility', 'captions', 'CC', 'The older store badge for available captions.', true),
   f([64], 'Adjustable Text Size', 'Accessibility', 'text', 'SIZE', 'Players can adjust the size of in-game text.', true),
@@ -134,7 +134,7 @@ export const features = [
   f([81], 'Playable without Vision', 'Accessibility', 'eye', 'NV', 'The game advertises that it can be fully played without seeing the screen.', true),
   f([82], 'Contrast Controls', 'Accessibility', 'contrast', 'CONT', 'Players can adjust visual contrast.', true)
 ];
-const compactLabels = { FULL: 'ALL', PART: 'PAR', CARD: 'TC', SAVE: 'SAV', STAT: 'ST', RANK: 'LB', TIME: 'TL', TURN: 'TN', EDIT: 'ED', COMM: 'VO', JOIN: 'CO', ONLY: 'REQ', ITEM: 'ITM', SIZE: 'TXT', MENU: 'NAR', DIFF: 'LVL', PACE: 'OWN', CONT: 'CON' };
+const compactLabels = { FULL: 'ALL', PART: 'PAR', CARD: 'TC', SAVE: 'SAV', STAT: 'ST', RANK: 'LB', TIME: 'TL', TURN: 'TN', EDIT: 'ED', COMM: 'VO', ITEM: 'ITM', SIZE: 'TXT', MENU: 'NAR', DIFF: 'LVL', PACE: 'OWN', CONT: 'CON' };
 features.push(...extraFeatures);
 const groupOrder = ['Play modes', 'Input', 'Steam features', 'Creation', 'Features?', 'Remote Play', 'Cloud streaming', 'Display & VR', 'Accessibility', 'Steam hardware'];
 const disclosureOrder = [35, 10003, 10004, 10005, 8];

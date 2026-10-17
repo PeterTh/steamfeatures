@@ -11,7 +11,7 @@ export const hardwareDevices = [
 export const extraFeatures = [
   feature(45, 'cloud-streaming', 'Cloud streaming', 'Cloud streaming', 'cloud', 'STR', 'Supports cloud streaming.', 'cloud-streaming', 1, false, [45]),
   feature(46, 'geforce-now', 'NVIDIA GeForce NOW', 'Cloud streaming', 'cloud', 'GFN', 'Supports cloud streaming through NVIDIA GeForce NOW.', 'cloud-streaming', 1, false, [46]),
-  feature(10000, 'no-keyboard-mouse', 'No keyboard/mouse support', 'Input', 'keyboard', 'REQ', 'This game cannot be played with a keyboard and mouse.', 'keyboard-mouse', -1),
+  feature(10000, 'no-keyboard-mouse', 'No keyboard/mouse support', 'Input', 'keyboard', 'NKM', 'This game cannot be played with a keyboard and mouse.', 'keyboard-mouse', -1),
   feature(10001, 'dynamic-cloud-sync', 'Dynamic Cloud Sync', 'Steam features', 'cloud', 'DYN', 'Syncs Steam Cloud saves when the game is suspended, so you can continue on another device.', 'dynamic-cloud-sync'),
   feature(10003, 'third-party-drm', 'Third-party DRM', 'Features?', 'lock', 'DRM', 'Steam discloses third-party copy protection or activation requirements. Click a game’s entry for details.', 'third-party-drm', -1),
   feature(10004, 'third-party-account', 'Third-party account required', 'Features?', 'person', 'ACC', 'A third-party account is required for the game or some of its features. Wholly optional accounts do not count. Click a game’s entry for details.', 'third-party-account', -1),

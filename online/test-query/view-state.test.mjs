@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { DEFAULT_QUERY, normalizeQuery, parseQuery, serializeQuery } from '../src/query.mjs';
 import { parseView, serializeView } from '../src/view-state.mjs';
 import { features as allFeatures } from '../src/features.mjs';
+import { featureColumns } from '../src/feature-presentation.mjs';
 
 const features = [
   { id: 1, key: 'multi-player', name: 'Multi-player', multiplayer: true },
@@ -80,7 +81,19 @@ test('a combined hardware column has its own highlight independent of rating fil
   const parsed = parseView(search, allFeatures);
   assert.equal(parsed.highlight, 'steam-deck');
   assert.equal(parsed.query.compatibility['steam-deck'], 'playable');
-  assert.equal(serializeView({ ...parsed.query, includeHardware: false }, parsed.highlight, allFeatures).includes('highlight=steam-deck'), true);
+  assert.equal(serializeView({ ...parsed.query, includeHardware: false }, parsed.highlight, allFeatures).includes('highlight=DCK'), true);
+});
+
+test('every column highlight accepts its code or old full key and generates its code', () => {
+  for (const column of featureColumns(allFeatures)) {
+    for (const token of [column.short, column.short.toLowerCase(), column.key]) {
+      assert.equal(parseView(`?highlight=${token}`, allFeatures).highlight, column.key, token);
+    }
+    assert.equal(serializeView(DEFAULT_QUERY, column.key, allFeatures), `?v=1&highlight=${column.short}`);
+  }
+  assert.equal(parseView('?highlight=CLD&highlight=steam-cloud&highlight=cld', allFeatures).highlight, 'steam-cloud');
+  assert.equal(parseView('?highlight=CLD&highlight=ACH', allFeatures).highlight, null);
+  assert.equal(parseView('?highlight=CLD&highlight=unknown', allFeatures).highlight, null);
 });
 
 test('URLSearchParams input is not changed and string hashes are ignored', () => {
