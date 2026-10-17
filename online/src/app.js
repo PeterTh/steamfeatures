@@ -873,10 +873,12 @@ $('next').addEventListener('click', () => setFilters({ page: state.page + 1 }, f
 function goToPage() { if ($('page').reportValidity()) setFilters({ page: Number($('page').value) }, false); }
 $('go-page').addEventListener('click', goToPage);
 $('page').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); goToPage(); } });
-$('about').prepend(icon('info'));
+for (const [id, name] of [['news', 'bell'], ['about', 'info']]) {
+  $(id).prepend(icon(name));
+  $(id).addEventListener('click', () => { hideTip(); $(id + '-dialog').showModal(); $(id + '-content').scrollTop = 0; });
+  $(id + '-close').addEventListener('click', () => $(id + '-dialog').close());
+}
 $('share').prepend(icon('link'));
-$('about').addEventListener('click', () => { hideTip(); $('about-dialog').showModal(); $('about-content').scrollTop = 0; });
-$('about-close').addEventListener('click', () => $('about-dialog').close());
 $('compatibility-close').addEventListener('click', () => $('compatibility-dialog').close());
 $('compatibility-dialog').addEventListener('keydown', e => {
   if (e.key !== 'Tab' || e.altKey || e.ctrlKey || e.metaKey) return;
@@ -899,7 +901,7 @@ $('faq-example').addEventListener('click', e => {
   $('about-dialog').close();
   setFilters(next);
 });
-for (const id of ['about-dialog', 'compatibility-dialog']) $(id).addEventListener('click', e => {
+for (const id of ['news-dialog', 'about-dialog', 'compatibility-dialog']) $(id).addEventListener('click', e => {
   if (e.target !== e.currentTarget) return;
   const rect = e.currentTarget.getBoundingClientRect();
   if (e.clientX < rect.left || e.clientX > rect.right || e.clientY < rect.top || e.clientY > rect.bottom) e.currentTarget.close();

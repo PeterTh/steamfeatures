@@ -31,14 +31,14 @@ main{padding-top:1.3rem}.masthead{justify-content:flex-start;gap:1.25rem;flex-wr
 
 .view-button,.header-actions .subtle-button{display:inline-flex;align-items:center;justify-content:center;gap:.4rem;white-space:nowrap}
 .view-button .icon,.header-actions .icon{width:1rem;height:1rem;flex-shrink:0}
-.about-dialog{width:min(40rem,calc(100% - 2rem));max-height:calc(100vh - 2rem);max-height:calc(100dvh - 2rem);padding:0;overflow:hidden;color:var(--text);background:var(--panel);border:1px solid #496178;border-radius:.55rem;box-shadow:0 1rem 4rem #0008}
-.about-dialog[open]{display:flex;flex-direction:column}body:has(.about-dialog[open]){overflow:hidden}
-.about-dialog::backdrop{background:#050a12b3}
-.about-header{display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-shrink:0;padding:1rem 1.25rem;border-bottom:1px solid var(--line)}.about-header h2{margin:0;font-size:1.2rem}
-#about-close{display:grid;place-items:center;width:2rem;height:2rem;padding:0;color:var(--muted);background:none;border:0;border-radius:.25rem}
-#about-content{font-size:.9375rem;line-height:1.6;min-height:0;overflow:auto;overscroll-behavior:contain;padding:.3rem 1.25rem 1.25rem}
-#about-content p{margin:.7rem 0}#about-content h3{font-size:1.1rem;margin:1.25rem 0 .75rem;color:var(--accent)}
-.faq-item+.faq-item{margin-top:1.3rem}.faq-item h4{font-size:1rem;line-height:1.4;margin:0;font-weight:650}.faq-item ul{margin:.6rem 0;padding-left:1.25rem}.faq-item li+li{margin-top:.65rem}.faq-item a{text-decoration:underline;text-underline-offset:.15em}
+.text-dialog{width:min(40rem,calc(100% - 2rem));max-height:calc(100vh - 2rem);max-height:calc(100dvh - 2rem);padding:0;overflow:hidden;color:var(--text);background:var(--panel);border:1px solid #496178;border-radius:.55rem;box-shadow:0 1rem 4rem #0008}
+.text-dialog[open]{display:flex;flex-direction:column}body:has(.text-dialog[open]){overflow:hidden}
+.text-dialog::backdrop{background:#050a12b3}
+.text-dialog-header{display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-shrink:0;padding:1rem 1.25rem;border-bottom:1px solid var(--line)}.text-dialog-header h2{margin:0;font-size:1.2rem}
+.text-dialog-close{display:grid;place-items:center;width:2rem;height:2rem;padding:0;color:var(--muted);background:none;border:0;border-radius:.25rem}
+.text-dialog-content{font-size:.9375rem;line-height:1.6;min-height:0;overflow:auto;overscroll-behavior:contain;padding:.3rem 1.25rem 1.25rem}
+.text-dialog-content p{margin:.7rem 0}.text-dialog-content h3{font-size:1.1rem;margin:1.25rem 0 .75rem;color:var(--accent)}.text-dialog-content ul{margin:.6rem 0;padding-left:1.25rem}.text-dialog-content li+li{margin-top:.65rem}
+.faq-item+.faq-item{margin-top:1.3rem}.faq-item h4{font-size:1rem;line-height:1.4;margin:0;font-weight:650}.faq-item a{text-decoration:underline;text-underline-offset:.15em}
 @media(max-width:650px){.masthead{grid-template-columns:1fr}.masthead .brand{grid-column:1;grid-row:1}.masthead .views{grid-column:1;grid-row:2}.masthead .header-actions{grid-column:1;grid-row:3;margin-left:0}}
 @media(min-width:500px) and (max-width:650px){.masthead{grid-template-columns:1fr auto}.masthead .brand{grid-column:1/-1}.masthead .views{grid-column:1;grid-row:2}.masthead .header-actions{grid-column:2;grid-row:2}}
 

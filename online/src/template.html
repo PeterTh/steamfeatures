@@ -24,6 +24,7 @@
       <div class="brand"><img class="brand-mark" src="./brand.svg" alt="" aria-hidden="true" width="48" height="36"><h1>Steam Feature Atlas</h1></div>
       <nav class="views" aria-label="Views"><div id="presets"></div></nav>
       <div class="header-actions">
+        <button id="news" type="button" class="subtle-button" aria-haspopup="dialog" aria-controls="news-dialog"><span>News</span></button>
         <button id="about" type="button" class="subtle-button" aria-haspopup="dialog" aria-controls="about-dialog"><span>About &amp; FAQ</span></button>
         <button id="share" type="button" class="subtle-button"><span id="share-label">Copy link</span></button>
       </div>
@@ -109,9 +110,52 @@
       </div>
     </details>
   </main>
-  <dialog id="about-dialog" class="about-dialog" aria-labelledby="about-title">
-    <div class="about-header"><h2 id="about-title">About &amp; FAQ</h2><button id="about-close" type="button" aria-label="Close About &amp; FAQ" autofocus><svg class="icon" aria-hidden="true" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div>
-    <div id="about-content">
+  <dialog id="news-dialog" class="text-dialog" aria-labelledby="news-title">
+    <div class="text-dialog-header"><h2 id="news-title">News</h2><button id="news-close" type="button" class="text-dialog-close" aria-label="Close News" autofocus><svg class="icon" aria-hidden="true" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div>
+    <div id="news-content" class="text-dialog-content" tabindex="0" role="region" aria-label="News history">
+      <h3><time datetime="2026-10-17">2026-10-17</time></h3>
+      <ul>
+        <li>Updated game cards with Steam artwork, click-to-lock behavior, and links to Steam, SteamDB and Steamograph.</li>
+        <li>Added third-party DRM, account requirements and anti-cheat disclosures, including a score penalty for kernel-mode anti-cheat.</li>
+        <li>Renamed Controllers to Input and grouped in-app purchases, DRM, account requirements and anti-cheat together.</li>
+        <li>Shorter shared URLs now use the table's feature codes.</li>
+      </ul>
+      <h3><time datetime="2026-10-15">2026-10-15</time></h3>
+      <ul>
+        <li>Improved catalog download efficiency in Firefox.</li>
+      </ul>
+      <h3><time datetime="2026-10-14">2026-10-14</time></h3>
+      <ul>
+        <li>Faster first results, with the full catalog loading silently in the background.</li>
+      </ul>
+      <h3><time datetime="2026-10-13">2026-10-13</time></h3>
+      <ul>
+        <li>Faster startup.</li>
+        <li>Filter games directly from the tags in a game card.</li>
+        <li>Search now preserves spaces and cursor position while typing.</li>
+      </ul>
+      <h3><time datetime="2026-10-12">2026-10-12</time></h3>
+      <ul>
+        <li>Added separate language filters for interface, audio and subtitles.</li>
+      </ul>
+      <h3><time datetime="2026-10-11">2026-10-11</time></h3>
+      <ul>
+        <li>Added Steam Deck, Steam Machine, Steam Frame and SteamOS compatibility filters and detailed compatibility notes.</li>
+      </ul>
+      <h3><time datetime="2026-10-10">2026-10-10</time></h3>
+      <ul>
+        <li>Added release-date filters and shareable column highlights.</li>
+        <li>Improved the table layout and reduced catalog download sizes.</li>
+      </ul>
+      <h3><time datetime="2026-10-09">2026-10-09</time></h3>
+      <ul>
+        <li>Initial release of Steam Feature Atlas.</li>
+      </ul>
+    </div>
+  </dialog>
+  <dialog id="about-dialog" class="text-dialog" aria-labelledby="about-title">
+    <div class="text-dialog-header"><h2 id="about-title">About &amp; FAQ</h2><button id="about-close" type="button" class="text-dialog-close" aria-label="Close About &amp; FAQ" autofocus><svg class="icon" aria-hidden="true" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div>
+    <div id="about-content" class="text-dialog-content">
       <p>This is a just-for-fun project to allow quick browsing of the Steam catalog with a focus on features and tags.</p>
       <p>It is not and will never be commercial in any way, and all the data/navigation/filtering happens locally in your browser.</p>
       <h3>FAQ</h3>
