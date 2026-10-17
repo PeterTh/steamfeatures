@@ -154,7 +154,7 @@ async (page, options = {}) => {
   await page.locator('#search').fill(fixture.game.name);
   await page.waitForFunction(name => window.steamFeatureAtlas.getView().filters.q === name && new URLSearchParams(location.search).get('q') === name && !document.querySelector('#results').hasAttribute('aria-busy'), fixture.game.name);
   check('Title filtering preserves both date bounds and finds the catalog example', (await view()).games.some(game => game.id === fixture.game.id) && (await view()).filters.releaseFrom === fixture.day && (await view()).filters.releaseTo === fixture.next);
-  await page.locator(`tr[data-game-id="${fixture.game.id}"] .info-button`).click();
+  await page.locator(`tr[data-game-id="${fixture.game.id}"] .game-name`).click();
   const tooltipDates = await page.locator('#tooltip').evaluate(tip => Object.fromEntries([...tip.querySelectorAll('dt')].map(label => [label.textContent, label.nextElementSibling.textContent])));
   check('Game details use ISO release and metadata-check dates', tooltipDates['Release date'] === fixture.day && tooltipDates['Steam metadata checked'] === fixture.game.metadataDay);
   await page.keyboard.press('Escape');

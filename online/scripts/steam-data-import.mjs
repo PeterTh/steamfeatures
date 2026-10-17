@@ -5,6 +5,7 @@ import { normalizeSteamEnrichment } from './steam-enrichment.mjs';
 import { normalizeStoreItem } from './steam-refresh.mjs';
 import { readSteamResponseArchive } from './steam-archive.mjs';
 import { STEAM_DATA_REQUEST } from './steam-client.mjs';
+import { headerImagePath } from './game-images.mjs';
 
 export async function openSteamData({ filename, previous, journalDirectory, requireExisting = false, state, checkpointOnly = false }) {
   if (requireExisting) await stat(filename);
@@ -59,12 +60,14 @@ export function withSteamData(client, picsClient, store) {
   };
 }
 
-export function projectSteamData(store, state, features) {
+export function projectSteamData(store, state, features, { imagePaths } = {}) {
   const registry = new Map(features.map(feature => [feature.id, feature]));
   const tagNames = new Map((store.setting('tags') ?? []).map(tag => [Number(tag.tagid), tag.name]));
   const projections = new Map();
   const aliases = new Map(features.flatMap(feature => feature.steamIds.map(id => [id, feature.id])));
   for (const row of store.rows()) {
+    const imagePath = imagePaths && headerImagePath(row);
+    if (imagePath && imagePath !== 'header.jpg') imagePaths.set(row.id, imagePath);
     const previous = state.apps[row.id];
     if (row.store_checked && (!previous || row.store_checked > previous.lastAttemptAt)) {
       if (row.store_result === 1) {
@@ -106,7 +109,11 @@ export function mergeSteamEnrichment(games, projections, features) {
     const { featureIds, baseFeatureIds, knownFeatureGroups, nonGame, ...fields } = extra;
     // A complete observed section can remove a previous positive feature.
     const base = (baseFeatureIds ?? game.featureIds).filter(id => !extraIds.has(id));
-    return [{ ...game, ...fields, featureIds: [...new Set([...base, ...featureIds])].sort((a, b) => a - b),
-      ...(baseFeatureIds ? { featureDataKnown: true } : {}), knownFeatureGroups }];
+    const merged = { ...game, ...fields, featureIds: [...new Set([...base, ...featureIds])].sort((a, b) => a - b),
+      ...(baseFeatureIds ? { featureDataKnown: true } : {}), knownFeatureGroups };
+    // Undefined projections clear stale optional data, but must be absent from
+    // the browser catalog: binary dictionaries encode JSON values only.
+    for (const [key, value] of Object.entries(fields)) if (value === undefined) delete merged[key];
+    return [merged];
   });
 }

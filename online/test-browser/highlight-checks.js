@@ -33,7 +33,7 @@ async (page, options = {}) => {
   check('Highlight changes no query results, scores, filters, or pagination', JSON.stringify(before.filters) === JSON.stringify(after.filters) && JSON.stringify(before.games) === JSON.stringify(after.games) && before.page === after.page && before.matching === after.matching);
   check('Highlight neither queries the worker nor rebuilds or vertically scrolls rows', await page.evaluate(() => window.highlightCheckMessages === 0 && window.highlightCheckRow === document.querySelector('#matrix-body tr')) && await page.locator('#matrix-region').evaluate(region => region.scrollTop) === scrollBefore);
   check('Selected column spans its header and every displayed row', await page.locator('#matrix .column-selected').count() === after.displayed + 1 && await page.locator('#matrix .column-selected:not([data-feature="23"])').count() === 0);
-  check('Highlight is shareable by feature slug and has a removable chip', await highlightParam() === 'steam-cloud' && /Highlight:.*Steam Cloud/.test(await page.locator('#highlight-chip').innerText()));
+  check('Highlight is shareable by feature code and has a removable chip', await highlightParam() === 'CLD' && /Highlight:.*Steam Cloud/.test(await page.locator('#highlight-chip').innerText()));
   await page.keyboard.press('Escape');
   await page.locator('#feature-22 button').hover();
   check('Hover moves independently of the selected column', await page.locator('#feature-22.column-highlight').count() === 1 && await page.locator('#feature-23.column-selected').count() === 1);
@@ -52,11 +52,11 @@ async (page, options = {}) => {
   check('Selecting another feature replaces the previous highlight', await page.locator('#feature-22.column-selected').count() === 0 && await page.locator('#feature-23.column-selected').count() === 1 && await page.evaluate(() => new URLSearchParams(location.search).getAll('highlight').length === 1));
   await page.keyboard.press('Escape');
   await page.locator('#next').click(); await settled();
-  check('Pagination preserves the selected column and URL', (await view()).page === 2 && (await view()).highlight === 'steam-cloud' && await highlightParam() === 'steam-cloud' && await page.locator('#feature-23.column-selected').count() === 1);
+  check('Pagination preserves the selected column and URL', (await view()).page === 2 && (await view()).highlight === 'steam-cloud' && await highlightParam() === 'CLD' && await page.locator('#feature-23.column-selected').count() === 1);
   await page.locator('#sort').selectOption('reviews'); await settled();
   check('Sorting preserves the highlight', (await view()).filters.sort === 'reviews-desc' && (await view()).highlight === 'steam-cloud');
   await page.locator('button[data-preset="missing-cloud"]').click(); await settled();
-  check('Presets preserve the highlight', (await view()).filters.not.includes(23) && (await view()).highlight === 'steam-cloud' && await highlightParam() === 'steam-cloud');
+  check('Presets preserve the highlight', (await view()).filters.not.includes(23) && (await view()).highlight === 'steam-cloud' && await highlightParam() === 'CLD');
   await page.locator('#reset').click(); await settled();
   check('Reset Filters leaves the highlight intact', (await view()).filters.minReviews === 20 && !(await view()).filters.not.length && (await view()).highlight === 'steam-cloud');
   await featureTip(22);
@@ -66,7 +66,7 @@ async (page, options = {}) => {
   });
   await page.waitForFunction(() => window.steamFeatureAtlas.getView().filters.q === 'Portal' && window.steamFeatureAtlas.getView().games.every(game => game.name.toLowerCase().includes('portal')));
   await settled();
-  check('Pending search and the next worker result preserve the newest highlight', (await view()).highlight === 'steam-achievements' && await highlightParam() === 'steam-achievements' && await page.evaluate(() => new URLSearchParams(location.search).get('q')) === 'Portal');
+  check('Pending search and the next worker result preserve the newest highlight', (await view()).highlight === 'steam-achievements' && await highlightParam() === 'ACH' && await page.evaluate(() => new URLSearchParams(location.search).get('q')) === 'Portal');
   await page.reload(); await settled();
   check('Reload restores filters and highlight together', (await view()).filters.q === 'Portal' && (await view()).highlight === 'steam-achievements' && await page.locator('#feature-22.column-selected').count() === 1);
   await page.evaluate(() => {
@@ -80,7 +80,7 @@ async (page, options = {}) => {
   await page.goto(base + '?q=Portal&highlight=does-not-exist'); await settled();
   check('An invalid highlight is ignored while valid filters remain active', (await view()).highlight === null && (await view()).filters.q === 'Portal' && (await view()).games.every(game => game.name.toLowerCase().includes('portal')) && await page.locator('#error').isHidden());
   await page.goto(base + '?highlight=multi-player'); await settled();
-  check('A hidden multiplayer highlight stays in the URL and is labeled hidden', (await view()).highlight === 'multi-player' && await highlightParam() === 'multi-player' && await page.locator('#matrix .column-selected').count() === 0 && /hidden/i.test(await page.locator('#highlight-chip').innerText()));
+  check('A hidden multiplayer highlight stays in the URL and is labeled hidden', (await view()).highlight === 'multi-player' && await highlightParam() === 'MP' && await page.locator('#matrix .column-selected').count() === 0 && /hidden/i.test(await page.locator('#highlight-chip').innerText()));
   await page.locator('#multiplayer').check(); await settled();
   check('Showing the group restores the highlighted column', await page.locator('#feature-1.column-selected').count() === 1 && !/hidden/i.test(await page.locator('#highlight-chip').innerText()));
   await page.locator('#multiplayer').uncheck(); await settled();
@@ -108,7 +108,7 @@ async (page, options = {}) => {
         check(`${width}px ${allFeatures ? 'all' : 'default'} columns use compact rows and usable widths`, Math.abs(layout.row.height - (layout.coarse ? 40 : 36)) < 1 && layout.title.width >= 251 && layout.title.width <= 385 && layout.rank.width >= 35 && layout.score.width >= 51 && layout.feature.width >= (layout.coarse ? 27 : 25));
         check(`${width}px feature headers retain compact two-tier heights`, Math.abs(layout.feature.height - 48) < 1 && Math.abs(layout.group.height - 28) < 1);
       }
-      await page.locator('#matrix-body .info-button').first().click();
+      await page.locator('#matrix-body .game-name').first().click();
       const tip = await page.evaluate(() => {
         const bounds = selector => { const r = document.querySelector(selector).getBoundingClientRect(); return {left:r.left,right:r.right,top:r.top,bottom:r.bottom,width:r.width,height:r.height}; };
         return {tip:bounds('#tooltip'),score:bounds('#matrix-head .fixed-score'),row:bounds('#matrix-body tr'),width:innerWidth,height:innerHeight};

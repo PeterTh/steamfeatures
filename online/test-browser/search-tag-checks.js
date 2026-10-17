@@ -25,7 +25,7 @@ async (page, options = {}) => {
   check('Reset explicitly clears the title draft', await search.inputValue() === '');
 
   const scrolledGame = [...(await view()).games].reverse().find(game => game.tags.length);
-  const scrolledTrigger = page.locator(`tr[data-game-id="${scrolledGame.id}"] .info-button`);
+  const scrolledTrigger = page.locator(`tr[data-game-id="${scrolledGame.id}"] .game-name`);
   await scrolledTrigger.scrollIntoViewIfNeeded(); await page.waitForTimeout(200); await scrolledTrigger.click();
   check('The scrolled-card example starts below the first result', await page.locator('#matrix-region').evaluate(node => node.scrollTop > 0));
   await page.locator('#tooltip .tip-tag').first().click(); await settled(); await page.waitForTimeout(200);
@@ -39,7 +39,7 @@ async (page, options = {}) => {
   const game = (await view()).games.find(game => game.id === 620);
   check('The real Portal 2 card has at least two tags', game?.tags.length >= 2);
   const [name, otherName] = game.tags;
-  const trigger = () => page.locator('tr[data-game-id="620"] .info-button');
+  const trigger = () => page.locator('tr[data-game-id="620"] .game-name');
   const tag = () => page.locator('#tooltip .tip-tag').filter({ hasText: new RegExp('^' + name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '$') });
   const option = () => page.locator('#tag-options .tag-option').filter({ has: page.locator('.option-name', { hasText: new RegExp('^' + name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '$') }) });
   await page.getByRole('button', { name: 'Require tag ' + otherName, exact: true }).click(); await settled();

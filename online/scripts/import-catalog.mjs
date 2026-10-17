@@ -18,6 +18,7 @@ import { openSteamData, withSteamData, projectSteamData, mergeSteamEnrichment } 
 import { writeSteamDataArchive } from './steam-data.mjs';
 import { archiveRecord } from './steam-enrichment.mjs';
 import { createPicsClient } from './steam-pics.mjs';
+import { writeGameImages, retainGameImages } from './game-images.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -25,6 +26,7 @@ export async function importCatalog({ sourceFile, output = resolve(ROOT, 'dist')
   refresh = !fixture && !sourceFile, bootstrap = false, steamLimit = Number(process.env.STEAM_REFRESH_LIMIT || 4000),
   steamStateFile, steamClient, now, finalizeSteam = false, localPreviousDirectory, steamDataFile, checkpointFile = resolve(ROOT, '.cache/steam-refresh-state.json') } = {}) {
   let steamData, picsClient;
+  const imagePaths = new Map();
   try {
   if (finalizeSteam && !sourceFile) throw new Error('Finalizing Steam data requires prepared --sources');
   if (finalizeSteam && (!Number.isSafeInteger(steamLimit) || steamLimit < 1 || steamLimit > 5000)) throw new Error('Steam refresh limit must be between 1 and 5000');
@@ -116,7 +118,7 @@ export async function importCatalog({ sourceFile, output = resolve(ROOT, 'dist')
       refreshState = result.state;
       refreshSummary = result.summary;
     }
-    const projections = steamData ? projectSteamData(steamData, refreshState, features) : undefined;
+    const projections = steamData ? projectSteamData(steamData, refreshState, features, { imagePaths }) : undefined;
     if (finalizeSteam) {
       refreshSummary.lastRunAt = newestAttempt(refreshState) || null;
       refreshSummary.checkedGames = Object.values(refreshState.apps).filter(entry => entry.metadata?.appType === 0).length;
@@ -174,13 +176,15 @@ export async function importCatalog({ sourceFile, output = resolve(ROOT, 'dist')
     tagDictionary: steamData.setting('tags') ?? [], outputDirectory: dataDirectory, generatedAt: importedAt
   }) : refresh ? (await buildSteamArchiveSnapshot({ directory: rawArchiveDirectory, previous: previousRawArchive, outputDirectory: dataDirectory })).descriptor : undefined;
   const retained = await retainPreviousCatalog(previous, dataDirectory, current);
-  const manifest = { version: 1, importedAt, fixture, current, previous: retained, sources, coverage, ...(stateDescriptor ? { refreshState: stateDescriptor, refresh: refreshSummary } : {}), ...(rawDescriptor ? { steamArchive: rawDescriptor } : {}) };
+  const gameImages = await writeGameImages(imagePaths, dataDirectory, new Set(games.map(game => game.id)));
+  await retainGameImages(previous, dataDirectory, gameImages, { localPreviousDirectory });
+  const manifest = { version: 1, importedAt, fixture, current, previous: retained, sources, coverage, ...(gameImages ? { gameImages } : {}), ...(stateDescriptor ? { refreshState: stateDescriptor, refresh: refreshSummary } : {}), ...(rawDescriptor ? { steamArchive: rawDescriptor } : {}) };
   await writeFile(resolve(dataDirectory, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n');
   await mkdir(resolve(output, 'licenses'), { recursive: true });
   await copyFile(resolve(blueboxDirectory, 'LICENSE'), resolve(output, 'licenses/BlueBoxWare-MIT.txt'));
   await copyFile(reviewLicenseFile, resolve(output, 'licenses/leinstay-GPL-3.0.txt'));
   await writeFile(resolve(output, 'licenses/NOTICE.txt'), 'Steam Feature Atlas uses BlueBoxWare/steamdb (MIT) and leinstay/steamdb (GPL-3.0).\nThe combined catalog is distributed under GPL-3.0. Upstream game names and other publisher material retain their owners\' rights.\nPinned source revisions and checksums: ../data/manifest.json\nTransformation source: https://github.com/peterth/steamfeatures/tree/main/online\nOriginal sources: https://github.com/BlueBoxWare/steamdb and https://github.com/leinstay/steamdb\n');
-  const lock = { version: 1, importedAt, fixture, sources, coverage, catalog: current, ...(stateDescriptor ? { refreshState: stateDescriptor, refresh: refreshSummary } : {}), ...(rawDescriptor ? { steamArchive: rawDescriptor } : {}) };
+  const lock = { version: 1, importedAt, fixture, sources, coverage, catalog: current, ...(gameImages ? { gameImages } : {}), ...(stateDescriptor ? { refreshState: stateDescriptor, refresh: refreshSummary } : {}), ...(rawDescriptor ? { steamArchive: rawDescriptor } : {}) };
   await writeFile(resolve(output, 'provenance-lock.json'), JSON.stringify(lock, null, 2) + '\n');
   console.log(JSON.stringify({ games: games.length, features: features.length,
     initialBrotliMB: +(current.progressive.priority.brotli.bytes / 1e6).toFixed(2),

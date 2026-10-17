@@ -3,6 +3,7 @@ import { parseView, serializeView } from './view-state.mjs';
 import { featureColumns, columnState, compatibilityTargets, disclosureDetails } from './feature-presentation.mjs';
 import { compatibilityDetails } from './compatibility-details.mjs';
 import { LANGUAGE_KINDS } from './languages.mjs';
+import { createGameImageLoader, steamHeaderURL } from './game-images.mjs';
 
 const $ = id => document.getElementById(id);
 const fmt = n => n == null ? 'Unknown' : new Intl.NumberFormat('en-US').format(n);
@@ -22,8 +23,11 @@ let requestedSearch = null, activeQueryRequest = 0;
 let layoutFrame;
 let dateDraftDirty = false;
 let compatibilityAnchor = null;
+let gameCard = null, tipSearch = null, loadGameImage = createGameImageLoader(null);
 
   const paths = {
+    steam: '<g fill="currentColor" stroke="none" transform="translate(2 1.9) scale(.226)"><path d="M44.238 .601C21 .601 1.963 18.519 .154 41.29l23.71 9.803a12.45 12.45 0 0 1 7.047-2.179c.234 0 .467 .008 .698 .021l10.544-15.283c0-.073-.001-.144-.001-.216 0-9.199 7.483-16.683 16.683-16.683S75.517 24.237 75.517 33.436 68.034 50.12 58.835 50.12c-.127 0-.253-.003-.379-.006l-15.038 10.73c.008 .195 .015 .394 .015 .592 0 6.906-5.617 12.522-12.522 12.522-6.061 0-11.129-4.326-12.277-10.055L1.678 56.893c5.25 18.568 22.309 32.181 42.56 32.181 24.432 0 44.237-19.806 44.237-44.235C88.475 20.406 68.669 .601 44.238 .601Z"/><path d="m27.875 67.723-5.434-2.245c.963 2.005 2.629 3.684 4.841 4.606 4.782 1.992 10.295-.277 12.288-5.063a9.34 9.34 0 0 0 .014-7.189 9.33 9.33 0 0 0-5.074-5.097 9.34 9.34 0 0 0-6.926-.105l5.613 2.321c3.527 1.47 5.195 5.52 3.725 9.047-1.467 3.523-5.52 5.191-9.047 3.725Z"/><path d="M69.95 33.436c0-6.129-4.986-11.116-11.116-11.116S47.718 27.307 47.718 33.436 52.705 44.551 58.834 44.551 69.95 39.565 69.95 33.436ZM50.502 33.417a8.35 8.35 0 1 1 16.702 0 8.35 8.35 0 0 1-16.702 0Z"/></g>',
+    steamograph: '<path fill="currentColor" fill-rule="evenodd" stroke="none" d="M6 2h12a4 4 0 0 1 4 4v12a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V6a4 4 0 0 1 4-4ZM13.35 14.66q0-.3-.21-.54-.2-.23-.64-.48-.44-.25-1.16-.56-.8-.32-1.4-.66-.61-.34-1.04-.76-.42-.42-.63-.95-.21-.53-.21-1.23 0-.73.27-1.36.26-.62.78-1.1.52-.47 1.26-.75.74-.27 1.67-.27 1.3 0 2.24.45.93.46 1.44 1.27.51.82.51 1.9h-3q0-.39-.12-.69-.12-.31-.38-.48-.26-.17-.7-.17-.32 0-.57.14-.25.14-.39.37-.15.23-.15.54 0 .23.11.41.1.19.32.36.23.17.6.35.38.19.94.42 1.15.43 1.9.92.74.49 1.11 1.15.36.65.36 1.62 0 .77-.3 1.4-.29.63-.84 1.09-.56.46-1.34.7-.77.25-1.73.25-1.4 0-2.36-.56-.97-.55-1.46-1.42-.49-.87-.49-1.81h2.84q.03.57.23.9.19.32.53.45.34.13.77.13.42 0 .69-.11.27-.12.41-.35.14-.24.14-.57Z"/>',
     lock: '<rect x="5" y="10" width="14" height="12" rx="2"/><path d="M8 10V6a4 4 0 0 1 8 0v4M12 15v3"/>',
     warning: '<path d="M12 3 2 21h20ZM12 9v5m0 3v1"/>',
     link: '<path d="m10 13 4-4m-6 7-2 2a4 4 0 0 1-6-6l4-4a4 4 0 0 1 6 0m4 0 2-2a4 4 0 0 1 6 6l-4 4a4 4 0 0 1-6 0" transform="translate(1 -1)"/>',
@@ -77,7 +81,7 @@ let compatibilityAnchor = null;
     contrast: '<circle cx="12" cy="12" r="10"/><path d="M12 2v20"/><path d="M12 2a10 10 0 0 1 0 20Z" fill="currentColor" stroke="none"/>',
     info: '<circle cx="12" cy="12" r="10"/><path d="M12 11v7M12 6v1"/>',
     external: '<path d="M14 2h8v8m0-8L10 14M10 3H3v18h18v-7"/>',
-    database: '<ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 4 18 4 18 0V5M3 12c0 4 18 4 18 0"/>'
+    steamdb: '<path fill="currentColor" fill-rule="evenodd" stroke="none" transform="translate(2.22 2) scale(.2381)" d="M41.0645 0C63.7437 0 82.1289 8.45818 82.1289 18.8906C82.1286 23.2692 78.8889 27.2985 73.4531 30.502C78.8892 33.705 82.1287 37.7346 82.1289 42.1133C82.1289 46.4413 78.9631 50.427 73.6406 53.6123C78.963 56.7973 82.1288 60.7825 82.1289 65.1104C82.1284 75.5426 63.7434 83.999 41.0645 83.999C18.3855 83.999 .000555205 75.5426 0 65.1104C.000124576 60.7827 3.1654 56.7972 8.4873 53.6123C3.16524 50.4271 .0000102266 46.4411 0 42.1133C.000201977 37.7347 3.23999 33.706 8.67578 30.5029C3.23974 27.2995 .000259609 23.2694 0 18.8906C0 8.45819 18.3852 .00000853624 41.0645 0ZM68.167 56.3027C60.9354 59.2275 51.4506 61.0029 41.0645 61.0029C30.6784 61.0029 21.1935 59.2275 13.9619 56.3027V63.4668L13.9707 63.7422C14.3417 69.5114 26.3302 74.1435 41.0645 74.1436C55.7988 74.1435 67.7873 69.5114 68.1582 63.7422L68.167 63.4668V56.3027ZM68.167 33.0801C60.9354 36.0048 51.4505 37.7803 41.0645 37.7803C30.6784 37.7803 21.1935 36.0048 13.9619 33.0801V40.4717C13.9624 46.3681 26.0966 51.1483 41.0645 51.1484C55.7981 51.1484 67.7861 46.5169 68.1582 40.748L68.167 40.4717V33.0801ZM41.0645 8.21387C26.0962 8.21389 13.9619 12.6263 13.9619 18.0693C13.9628 23.5121 26.0967 27.9248 41.0645 27.9248C56.0322 27.9248 68.1661 23.5121 68.167 18.0693C68.167 12.6263 56.0328 8.21387 41.0645 8.21387Z"/>'
   };
   $('icon-defs').innerHTML = Object.entries(paths).map(([id, path]) => `<symbol id="icon-${id}" viewBox="0 0 24 24">${path}</symbol>`).join('');
   function element(tag, className, text) { const node = document.createElement(tag); if (className) node.className = className; if (text !== undefined) node.textContent = text; return node; }
@@ -88,10 +92,17 @@ let compatibilityAnchor = null;
   }
   function tipTrigger(node, kind, id) { node.dataset.tip = kind; node.dataset.id = id; return node; }
   function link(url, label, className, text) { const a = element('a', className, text); a.href = url; a.target = '_blank'; a.rel = 'noopener noreferrer'; a.setAttribute('aria-label', label); return a; }
+  function gameDestinations(game) {
+    return [
+      { key: 'steam', title: 'Steam page', url: `https://store.steampowered.com/app/${game.id}/`, icon: 'steam' },
+      { key: 'steamdb', title: 'SteamDB', url: `https://steamdb.info/app/${game.id}/`, icon: 'steamdb' },
+      { key: 'steamograph', title: 'Steamograph', url: `https://steamograph.com/games/${game.id}`, icon: 'steamograph' }
+    ];
+  }
 
   function render() {
     if ($('compatibility-dialog').open) $('compatibility-dialog').close();
-    const keepGameTip = preserveGameTip && tipAnchor?.dataset.tip === 'game';
+    const keepGameTip = (preserveGameTip || tipPinned && tipSearch === requestedSearch) && tipAnchor?.dataset.tip === 'game';
     if (!keepGameTip) hideTip();
     highlightColumn(null); columnCells = new Map();
     view = latestResult.rows.map(g => ({ ...g, featureSet: new Set(g.featureIds) })); games = new Map(view.map(g => [g.id,g])); matching = latestResult.total; visibleFeatures = latestResult.columns.map(id => columns.get(id));
@@ -128,11 +139,14 @@ let compatibilityAnchor = null;
       const rank = element('td', 'fixed-rank', g.rank == null ? '?' : String(g.rank)); rank.setAttribute('aria-label', g.rank == null ? 'Rank unknown' : 'Rank ' + g.rank);
       const name = element('th', 'fixed-game'); name.scope = 'row'; name.id = 'game-' + g.id;
       const cell = element('div', 'game-cell');
-      const title = tipTrigger(link(`https://store.steampowered.com/app/${g.id}/`, g.name + ' on Steam', 'game-name', g.name), 'game', g.id);
+      const title = tipTrigger(element('button', 'game-name', g.name), 'game', g.id); title.type = 'button';
+      title.setAttribute('aria-label', 'Details for ' + g.name); title.setAttribute('aria-haspopup', 'dialog'); title.setAttribute('aria-controls', 'tooltip'); title.setAttribute('aria-expanded', 'false');
       const links = element('span', 'game-links');
-      const info = tipTrigger(element('button', 'info-button'), 'game', g.id); info.type = 'button'; info.setAttribute('aria-label', 'Details for ' + g.name); info.append(icon('info'));
-      const db = link(`https://steamdb.info/app/${g.id}/`, g.name + ' on SteamDB', 'game-link'); db.title = 'Open SteamDB'; db.append(icon('database'));
-      links.append(info, db); cell.append(title); if (g.earlyAccess) { const ea = element('span', 'ea-mark', 'EA'); ea.title = 'Early Access'; cell.append(ea); } cell.append(links); name.append(cell);
+      for (const destination of gameDestinations(g)) {
+        const item = link(destination.url, `${g.name}: ${destination.title}`, 'game-link'); item.dataset.service = destination.key;
+        item.title = 'Open ' + destination.title; item.append(icon(destination.icon)); links.append(item);
+      }
+      cell.append(title); if (g.earlyAccess) { const ea = element('span', 'ea-mark', 'EA'); ea.title = 'Early Access'; cell.append(ea); } cell.append(links); name.append(cell);
       const score = element('td', 'fixed-score', g.score == null ? '?' : String(g.score)); score.setAttribute('aria-label', g.score == null ? 'Feature score unknown' : g.score + ' feature points');
       tr.append(rank, name, score);
       let group = null;
@@ -158,7 +172,7 @@ let compatibilityAnchor = null;
     $('matrix-body').replaceChildren(rows);
     if (keepGameTip) {
       // Keep the card usable even when excluding a tag removes its game.
-      const anchor = $('game-' + tipAnchor.dataset.id)?.querySelector(tipAnchor.matches('button') ? '.info-button' : '.game-name');
+      const anchor = $('game-' + tipAnchor.dataset.id)?.querySelector('.game-name');
       if (anchor) {
         tipAnchor.removeAttribute('aria-expanded'); tipAnchor.removeAttribute('aria-haspopup'); tipAnchor.removeAttribute('aria-controls');
         tipAnchor = anchor;
@@ -242,7 +256,8 @@ let compatibilityAnchor = null;
   function hideTip() {
     clearTimeout(tipHideTimer);
     if (tipAnchor) { tipAnchor.removeAttribute('aria-describedby'); tipAnchor.removeAttribute('aria-expanded'); }
-    tipAnchor = null; tipPinned = false; preserveGameTip = false; $('tooltip').hidden = true; $('tooltip').classList.remove('pinned', 'interactive');
+    tipAnchor = null; tipPinned = false; preserveGameTip = false; gameCard = null; tipSearch = null;
+    $('tooltip').hidden = true; $('tooltip').classList.remove('pinned', 'interactive', 'game-card', 'no-header');
   }
   function scheduleTipHide() {
     clearTimeout(tipHideTimer);
@@ -254,6 +269,7 @@ let compatibilityAnchor = null;
     suppressFocusTip = false;
   }
   function pinTip() {
+    if (tipPinned) return;
     const tip = $('tooltip'); tipPinned = true; tip.classList.add('pinned'); tip.setAttribute('role', 'dialog');
     const close = element('button', 'tip-close', '×'); close.type = 'button'; close.setAttribute('aria-label', 'Close details'); close.addEventListener('click', closeTipAndRestoreFocus); tip.append(close);
     tipAnchor.setAttribute('aria-expanded', 'true');
@@ -309,9 +325,13 @@ let compatibilityAnchor = null;
   }
   function showTip(anchor, pinned = false) {
     if (tipPinned && !pinned) return;
+    if (!pinned && tipAnchor === anchor && anchor.dataset.tip === 'game' && !$('tooltip').hidden) return;
     if (pinned && tipPinned && tipAnchor === anchor) { hideTip(); return; }
-    hideTip(); tipAnchor = anchor; tipPinned = pinned;
-    const tip = $('tooltip'), id = Number(anchor.dataset.id), interactive = anchor.dataset.tip === 'feature' || !!games.get(id)?.tagIds?.length; tip.replaceChildren(); tip.hidden = false; tip.classList.toggle('pinned', pinned); tip.classList.toggle('interactive', interactive); tip.setAttribute('role', pinned || interactive ? 'dialog' : 'tooltip');
+    if (pinned && tipAnchor === anchor && anchor.dataset.tip === 'game' && !$('tooltip').hidden) {
+      pinTip(); $('tooltip').tabIndex = -1; $('tooltip').focus({ preventScroll: true }); return;
+    }
+    hideTip(); tipAnchor = anchor;
+    const tip = $('tooltip'), id = Number(anchor.dataset.id), interactive = ['feature', 'game'].includes(anchor.dataset.tip); tip.replaceChildren(); tip.hidden = false; tip.classList.toggle('pinned', pinned); tip.classList.toggle('interactive', interactive); tip.setAttribute('role', pinned || interactive ? 'dialog' : 'tooltip');
     if (anchor.dataset.tip === 'feature') {
       const f = columns.get(id), weight = f.weight ?? 1;
       tip.append(element('p', 'tip-kicker', f.group), element('h3', '', f.name), element('p', '', f.description)); tip.setAttribute('aria-label', f.name);
@@ -343,7 +363,19 @@ let compatibilityAnchor = null;
       tip.append(controls);
     } else {
       const g = games.get(id); if (!g) { hideTip(); return; }
-      tip.append(element('p', 'tip-kicker', (g.earlyAccess ? 'Early Access · ' : '') + g.releaseStatus), element('h3', '', g.name)); tip.setAttribute('aria-label', g.name + ' details');
+      tipSearch = requestedSearch; tip.classList.add('game-card');
+      const header = element('div', 'game-card-header'), image = element('img');
+      image.alt = ''; image.width = 460; image.height = 215; image.decoding = 'async'; image.referrerPolicy = 'no-referrer'; header.append(image);
+      const body = element('div', 'game-card-body'); tip.append(header, body);
+      const card = { id, image }; gameCard = card;
+      image.addEventListener('error', () => {
+        if (gameCard !== card) return;
+        const fallback = steamHeaderURL(id);
+        if (image.src !== fallback) image.src = fallback;
+        else { header.remove(); tip.classList.add('no-header'); positionTip(); }
+      });
+      loadGameImage(id).catch(() => steamHeaderURL(id)).then(url => { if (gameCard === card) image.src = url; });
+      body.append(element('p', 'tip-kicker', (g.earlyAccess ? 'Early Access · ' : '') + g.releaseStatus), element('h3', '', g.name)); tip.setAttribute('aria-label', g.name + ' details');
       const all = [...columns.values()], dl = element('dl'), non = all.filter(f => !f.accessibility), count = list => g.featureDataKnown ? list.filter(f => columnState(g, f).listed).length + ' / ' + list.length : 'Unknown';
       addPair(dl, 'Feature score', g.score == null ? 'Unknown' : `${g.score} / ${latestResult.maxScore}`); addPair(dl, 'Visible feature count', count(visibleFeatures));
       addPair(dl, 'Non-accessibility total', count(non)); addPair(dl, 'All features', count(all));
@@ -352,9 +384,14 @@ let compatibilityAnchor = null;
       addPair(dl, 'Release date', date(g.releaseISO));
       if (g.achievementCount !== undefined) addPair(dl, 'Achievements', fmt(g.achievementCount));
       if (g.metadataUpdatedAt) addPair(dl, 'Steam metadata checked', date(g.metadataUpdatedAt));
-      tip.append(dl);
-      tip.append(element('p', 'tip-fine', (g.genres || []).join(' · ')), element('p', 'tip-fine', 'Steam app ' + g.id));
-      if (g.steamLookupStatus === 'unavailable' && g.steamLookupResultCode === 15) tip.append(element('p', 'tip-fine', 'Steam metadata unavailable; showing older data where available.'));
+      body.append(dl);
+      const destinations = element('p', 'tip-game-links');
+      for (const [index, destination] of gameDestinations(g).entries()) {
+        if (index) destinations.append(document.createTextNode(' · '));
+        destinations.append(link(destination.url, `${g.name}: ${destination.title}`, '', destination.title));
+      }
+      body.append(destinations, element('p', 'tip-fine', 'Steam app ' + g.id));
+      if (g.steamLookupStatus === 'unavailable' && g.steamLookupResultCode === 15) body.append(element('p', 'tip-fine', 'Steam metadata unavailable; showing older data where available.'));
       if (g.tagIds?.length) {
         const tags = element('p', 'tip-tags', 'Tags: ');
         for (const [index, id] of g.tagIds.entries()) {
@@ -369,19 +406,25 @@ let compatibilityAnchor = null;
           if (index) tags.append(document.createTextNode(' · '));
           tags.append(tag);
         }
-        tip.append(tags); syncGameTags();
+        body.append(tags); syncGameTags();
       }
-      else if (g.tagDataKnown) tip.append(element('p', 'tip-tags', 'Tags: None listed'));
+      else if (g.tagDataKnown) body.append(element('p', 'tip-tags', 'Tags: None listed'));
       else addPair(dl, 'Tag data', 'Unknown');
 
     }
     if (pinned) pinTip();
     else if (!interactive) anchor.setAttribute('aria-describedby', 'tooltip');
     if (interactive) { anchor.setAttribute('aria-haspopup', 'dialog'); anchor.setAttribute('aria-controls', 'tooltip'); anchor.setAttribute('aria-expanded', 'true'); }
+    positionTip();
+    if (pinned) { tip.tabIndex = -1; tip.focus({ preventScroll: true }); }
+  }
+  function positionTip() {
+    const anchor = tipAnchor, tip = $('tooltip');
+    if (!anchor || tip.hidden) return;
     const r = anchor.getBoundingClientRect(), t = tip.getBoundingClientRect();
     let left = Math.max(12, Math.min(r.left + r.width / 2 - t.width / 2, innerWidth - t.width - 12));
     let top = r.bottom + 9; if (top + t.height > innerHeight - 12) top = Math.max(12, r.top - t.height - 9);
-    if (anchor.dataset.tip === 'game') {
+    if (anchor.dataset.tip === 'game' && anchor.isConnected) {
       const beside = $('matrix-head').querySelector('.fixed-score').getBoundingClientRect().right + 8;
       if (beside + t.width <= innerWidth - 12) {
         left = beside;
@@ -389,7 +432,6 @@ let compatibilityAnchor = null;
       }
     }
     tip.style.left = left + 'px'; tip.style.top = top + 'px';
-    if (pinned) { tip.tabIndex = -1; tip.focus({ preventScroll: true }); }
   }
 
 
@@ -423,7 +465,8 @@ function startWorker() {
     }
     if (message.type === 'ready') {
       fullReady = !message.progressive?.partial; fullReadyAt = fullReady ? performance.now() : null;
-      data = message; data.tags ??= []; data.languages ??= []; features = new Map(data.features.map(f => [f.id, f])); columns = new Map(featureColumns(data.features).map(f => [f.id, f])); ready = true;
+      data = message; loadGameImage = createGameImageLoader(message.gameImages, { manifestURL: new URL('./data/manifest.json', location.href) });
+      data.tags ??= []; data.languages ??= []; features = new Map(data.features.map(f => [f.id, f])); columns = new Map(featureColumns(data.features).map(f => [f.id, f])); ready = true;
       buildPicker(); buildCompatibilityPicker(); tagOptionsBuilt = false; $('tag-options').replaceChildren(); if (!$('tag-picker').hidden) buildTagPicker(); updateMetadata(); $('query-controls').disabled = false;
       languageOptionsBuilt = false; $('language-options').replaceChildren(); if (!$('language-picker').hidden) buildLanguagePicker();
       for (const button of $('presets').querySelectorAll('button')) button.disabled = false;
@@ -883,8 +926,15 @@ window.addEventListener('popstate', () => { if (ready) loadURL(); });
   $('tooltip').addEventListener('focusout', e => { if (!$('tooltip').contains(e.relatedTarget) && !tipAnchor?.contains(e.relatedTarget)) scheduleTipHide(); });
   document.addEventListener('pointerdown', e => { if (tipAnchor && !tipAnchor.contains(e.target) && !$('tooltip').contains(e.target)) hideTip(); });
   document.addEventListener('keydown', e => { if (e.key === 'Escape') closeTipAndRestoreFocus(); });
-  $('matrix-region').addEventListener('scroll', () => { if (!preserveGameTip) hideTip(); }, { passive: true });
-  window.addEventListener('resize', () => { hideTip(); scheduleMatrixLayout(); });
+  $('matrix-region').addEventListener('scroll', () => { if (!preserveGameTip && !(tipPinned && tipAnchor?.dataset.tip === 'game')) hideTip(); }, { passive: true });
+  window.addEventListener('resize', () => {
+    if (tipPinned && tipAnchor?.dataset.tip === 'game') {
+      const rect = $('tooltip').getBoundingClientRect();
+      $('tooltip').style.left = Math.max(12, Math.min(rect.left, innerWidth - rect.width - 12)) + 'px';
+      $('tooltip').style.top = Math.max(12, Math.min(rect.top, innerHeight - rect.height - 12)) + 'px';
+    } else hideTip();
+    scheduleMatrixLayout();
+  });
   const layoutObserver = new ResizeObserver(scheduleMatrixLayout);
   layoutObserver.observe($('matrix-region'));
   layoutObserver.observe(document.querySelector('main'));

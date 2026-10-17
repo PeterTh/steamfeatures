@@ -10,6 +10,7 @@ import { createFixture } from '../scripts/fixture.mjs';
 import { decodeBinaryCatalog, BINARY_FORMAT } from '../src/catalog-binary.mjs';
 import { prepareCatalog, runQuery } from '../src/query.mjs';
 import { mergeCatalogPartitions } from '../src/progressive-catalog.mjs';
+import { features } from '../src/features.mjs';
 
 test('fixture import emits equivalent full and split binaries, compressed variants, JSON and provenance', async () => {
   const output = await mkdtemp(join(tmpdir(), 'steam-atlas-import-'));
@@ -17,7 +18,7 @@ test('fixture import emits equivalent full and split binaries, compressed varian
     const { catalog, manifest } = await importCatalog({ output, fixture: true });
     assert.equal(catalog.fixture, true);
     assert.equal(catalog.games.length, 5);
-    assert.equal(catalog.features.length, 81);
+    assert.equal(catalog.features.length, features.length);
     assert.equal(catalog.features.find(feature => feature.id === 23).weight, 3);
     assert.equal(catalog.features.find(feature => feature.id === 35).weight, -1);
     assert.equal(catalog.features.find(feature => feature.id === 1).multiplayer, true);

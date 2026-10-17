@@ -82,7 +82,7 @@ async (page, options = {}) => {
     check(`${key} is independently filterable and listed`, (await view()).filters.has.includes(id) && await page.locator(`tr[data-game-id="${game.id}"] td[data-feature="${id}"]`).getAttribute('data-supported') === 'true');
   }
   await openGame(catalog.achievements);
-  await page.locator(`tr[data-game-id="${catalog.achievements.id}"] .info-button`).click();
+  await page.locator(`tr[data-game-id="${catalog.achievements.id}"] .game-name`).click();
   check('Game details retain achievement counts', await page.locator('#tooltip').evaluate((tip, count) => [...tip.querySelectorAll('dt')].some(label => label.textContent === 'Achievements' && label.nextElementSibling?.textContent === count.toLocaleString('en-US')), catalog.achievements.achievementCount));
   await page.keyboard.press('Escape');
   await page.goto(base + '?not=no-keyboard-mouse&minReviews=0&ea=1&release=all'); await settled();

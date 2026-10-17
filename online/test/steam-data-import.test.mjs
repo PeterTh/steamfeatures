@@ -11,6 +11,7 @@ import { STEAM_DATA_REQUEST } from '../scripts/steam-client.mjs';
 import { runQuery } from '../src/query.mjs';
 import { decodeBinaryCatalog } from '../src/catalog-binary.mjs';
 import { createSteamResponseArchive } from '../scripts/steam-archive.mjs';
+import { gameImageBucket, gameImageFile } from '../src/game-images.mjs';
 
 test('offline finalization consumes enriched checkpoints, publishes streaming raw data, and keeps browser projections equivalent', async t => {
   const directory = await mkdtemp(join(tmpdir(), 'steam-enriched-import-'));
@@ -31,7 +32,8 @@ test('offline finalization consumes enriched checkpoints, publishes streaming ra
       store.putStore(id, { id, appid: id, success: 1, visible: true, name: `Steam ${id}`, categories: { feature_categoryids: [2] },
         reviews: { summary_filtered: { review_count: 30, percent_positive: 90 } }, tagids: [19],
         release: { is_coming_soon: id === 40, steam_release_date: 1577836800 },
-        platforms: { steam_deck_compat_category: 3 }, extra_details: { no_mouse_keyboard_support: id === 20, links_and_info: { achievement_count: 12 } }
+        platforms: { steam_deck_compat_category: 3 }, assets_without_overrides: { header: `${id}/header.jpg` },
+        extra_details: { no_mouse_keyboard_support: id === 20, links_and_info: { achievement_count: 12 } }
       }, { checkedAt: now, request: STEAM_DATA_REQUEST });
       store.putAppInfo(id, { appid: String(id), common: { category: { category_45: '1', category_46: '1' },
         steam_deck_compatibility: { category: '3', tests: { 0: { display: '4', token: '#SteamDeckVerified_TestResult_InterfaceTextIsLegible' } } } },
@@ -48,6 +50,9 @@ test('offline finalization consumes enriched checkpoints, publishes streaming ra
   assert.equal(manifest.steamArchive.format, STEAM_DATA_FORMAT);
   assert.equal(manifest.steamArchive.apps, 4);
   assert.equal(manifest.refresh.lastRunAt, now);
+  const imageShard = JSON.parse(await readFile(join(directory, 'site/data', manifest.gameImages.directory, gameImageFile(gameImageBucket(10))), 'utf8'));
+  assert.equal(imageShard[10], '10/header.jpg');
+  assert.ok(catalog.games.every(game => !Object.hasOwn(game, 'headerImage')));
   const finalized = new SteamDataStore(steamDataFile);
   try {
     assert.equal(finalized.progress().apps, 4);
@@ -70,4 +75,5 @@ test('offline finalization consumes enriched checkpoints, publishes streaming ra
   const rebuilt = await importCatalog({ sourceFile, checkpointFile, fixture: true, finalizeSteam: true,
     localPreviousDirectory: join(directory, 'site'), now: '2026-10-10T14:00:00.000Z', output: join(directory, 'restored-site') });
   assert.deepEqual(runQuery(rebuilt.catalog, { includeHardware: true }), runQuery(catalog, { includeHardware: true }));
+  assert.deepEqual(rebuilt.manifest.gameImages, manifest.gameImages);
 });

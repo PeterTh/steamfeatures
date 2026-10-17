@@ -95,11 +95,11 @@ async (page, options = {}) => {
   check('Missing feature caveat visible', await page.locator('#view-note').isVisible());
   check('Steam Cloud is not listed in displayed rows', await page.locator('#matrix-body td[data-feature="23"][data-supported="true"]').count() === 0);
   check('Preset sorts by reviews', v.games.every((g,i) => !i || g.reviews <= v.games[i-1].reviews));
-  await page.locator('#matrix-body .info-button').first().click();
+  await page.locator('#matrix-body .game-name').first().click();
   check('Details pin with keyboard focus', await page.locator('#tooltip').evaluate(el => el.getAttribute('role') === 'dialog' && document.activeElement === el));
   check('Game details include score, reviews, counts, dates', /Feature score/.test(await page.locator('#tooltip').innerText()) && /reviews/i.test(await page.locator('#tooltip').innerText()) && /Release date/.test(await page.locator('#tooltip').innerText()));
   check('Game details omit repeated snapshot caveat', !/Bulk snapshot|not individually verified/.test(await page.locator('#tooltip').innerText()));
-  await page.keyboard.press('Escape'); check('Escape closes pinned details and restores trigger focus', await page.locator('#tooltip').isHidden() && await page.locator('#matrix-body .info-button').first().evaluate(el => document.activeElement === el));
+  await page.keyboard.press('Escape'); check('Escape closes pinned details and restores trigger focus', await page.locator('#tooltip').isHidden() && await page.locator('#matrix-body .game-name').first().evaluate(el => document.activeElement === el));
   await page.locator('#feature-23 button').click(); check('Cloud tooltip explains its weight', /3 score points/.test(await page.locator('#tooltip').innerText())); await page.keyboard.press('Escape');
   await page.locator('#feature-60 button').click(); check('Zero-point tooltip explains raw count retention', /0 score points/.test(await page.locator('#tooltip').innerText()) && /raw count only/.test(await page.locator('#tooltip').innerText())); await page.keyboard.press('Escape');
   await page.locator('#feature-35 button').click(); check('In-App Purchases subtracts one point', /−1 score point/.test(await page.locator('#tooltip').innerText())); await page.keyboard.press('Escape');
@@ -108,13 +108,13 @@ async (page, options = {}) => {
   await page.waitForTimeout(300);
   check('Hovered feature tooltip keeps filter buttons reachable', await page.locator('#tooltip').isVisible() && await page.locator('#tooltip [data-action="has"]').getAttribute('aria-label') === 'Require Steam Cloud');
   await page.locator('#tooltip [data-action="has"]').click(); await settled(); v = await view();
-  check('Tooltip plus switches an exclusion to a requirement and updates URL', v.filters.has.includes(23) && !v.filters.not.includes(23) && await page.evaluate(() => new URLSearchParams(location.search).getAll('has').some(value => value.includes('steam-cloud'))));
+  check('Tooltip plus switches an exclusion to a requirement and updates URL', v.filters.has.includes(23) && !v.filters.not.includes(23) && await page.evaluate(() => new URLSearchParams(location.search).getAll('has').some(value => value.split(',').includes('CLD'))));
   check('Tooltip filter restores keyboard focus to the feature header', await page.locator('#feature-23 button').evaluate(el => document.activeElement === el));
   await page.locator('#feature-23 button').press('Enter');
   check('Feature tooltip reflects existing filter state', await page.locator('#tooltip [data-action="has"]').getAttribute('aria-pressed') === 'true');
   await page.locator('#tooltip [data-action="not"]').focus(); await page.keyboard.press('Enter'); await settled(); v = await view();
   check('Tooltip minus switches requirement to exclusion with keyboard', v.filters.not.includes(23) && !v.filters.has.includes(23));
-  check('Game rows link to Steam and SteamDB', /store.steampowered.com\/app\//.test(await page.locator('#matrix-body .game-name').first().getAttribute('href')) && /steamdb.info\/app\//.test(await page.locator('#matrix-body .game-link').first().getAttribute('href')));
+  check('Game rows link to Steam, SteamDB and Steamograph', /store.steampowered.com\/app\//.test(await page.locator('#matrix-body [data-service="steam"]').first().getAttribute('href')) && /steamdb.info\/app\//.test(await page.locator('#matrix-body [data-service="steamdb"]').first().getAttribute('href')) && /steamograph.com\/games\//.test(await page.locator('#matrix-body [data-service="steamograph"]').first().getAttribute('href')));
   await page.locator('#reset').click(); await settled();
   await page.evaluate(() => { const input = document.querySelector('#search'); input.value = 'Portal'; input.dispatchEvent(new Event('input', {bubbles:true})); document.querySelector('#early-access').click(); });
   await settled(); v = await view(); check('Fast filter change preserves pending title input', v.filters.q === 'Portal' && v.filters.includeEarlyAccess && v.games.every(g => g.name.toLowerCase().includes('portal')));
@@ -128,7 +128,7 @@ async (page, options = {}) => {
   check('Current catalog retains a confirmed denied game with unknown reviews', Boolean(dataset.denied));
   await openExample(dataset.denied);
   check('Threshold zero keeps a denied game without inventing a review count', (await view()).filters.minReviews === 0 && (await view()).filters.includeEarlyAccess && (await view()).games.find(game => game.id === dataset.denied.id).reviews === null);
-  await page.locator(`tr[data-game-id="${dataset.denied.id}"] .info-button`).click();
+  await page.locator(`tr[data-game-id="${dataset.denied.id}"] .game-name`).click();
   check('Denied game details explain preserved older data', /Steam metadata unavailable; showing older data where available\./.test(await page.locator('#tooltip').innerText()));
   check('Denied game details show its review total as Unknown', await page.locator('#tooltip').evaluate(tip => [...tip.querySelectorAll('dt')].some(label => /^Reviews$/i.test(label.textContent) && label.nextElementSibling?.textContent === 'Unknown')));
   await page.keyboard.press('Escape');
@@ -138,7 +138,7 @@ async (page, options = {}) => {
   await openExample(dataset.ys);
   const ys = (await view()).games.find(game => game.id === dataset.ys.id);
   check('Ys IX has reviews and community tags', ys.reviews > 0 && ys.tags.length > 0);
-  await page.locator(`tr[data-game-id="${dataset.ys.id}"] .info-button`).click();
+  await page.locator(`tr[data-game-id="${dataset.ys.id}"] .game-name`).click();
   check('Successful Steam game details contain no denial note', !/Steam metadata unavailable/.test(await page.locator('#tooltip').innerText()) && /Steam-purchase reviews/.test(await page.locator('#tooltip').innerText()));
   await page.keyboard.press('Escape');
   await page.locator('#reset').click(); await settled();

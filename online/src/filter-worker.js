@@ -252,6 +252,7 @@ if (typeof self !== 'undefined' && typeof self.addEventListener === 'function') 
           catalogCompression: loaded.compression ?? null,
           catalogBytes: loaded.bytes ?? null,
           progressive: loaded.progressive ?? null,
+          gameImages: manifest?.gameImages ?? null,
         });
       } else if (message.type === 'query') {
         if (!prepared) throw new Error('The game catalog has not loaded yet.');
