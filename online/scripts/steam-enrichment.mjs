@@ -30,6 +30,66 @@ function register(registry, { key, name, description, knowledgeGroup, short, wei
   return id;
 }
 
+const disclosureText = value => typeof value === 'string' ? value.trim() : '';
+const noDisclosure = value => /^(?:none|no|n\/?a|null|not applicable|not required|no (?:third[- ]party )?(?:drm|account)(?: required)?)[.!\s]*$/i.test(value);
+function hasThirdPartyDRM(value) {
+  return Boolean(value) && !noDisclosure(value) && !/\bdrm[- ]free\b/i.test(value)
+    && !/\bdoes(?:n't| not)\s+(?:use|incorporate|include|require|have)\s+(?:(?:any|a|additional|third[- ]party)\s+)*drm\b/i.test(value);
+}
+
+/** Steam's account label is free text. Explicit requirements for a mode still
+ * count when other modes are optional; merely optional accounts do not. */
+function requiresThirdPartyAccount(value) {
+  if (!value || noDisclosure(value)) return false;
+  if (/\b(?:unknown|to be confirmed|to be determined|tbd)\b/i.test(value)) return null;
+  const affirmative = value.replace(/\bnot\s+(?:required|needed|necessary)\b/gi, '')
+    .replace(/\bno\s+(?:additional\s+)?(?:software|personal information)[^.]*?(?:required|needed)\b/gi, '');
+  if (/\b(?:requir(?:e[ds]?|ing|ement)|needed|must|have to)\b/i.test(affirmative)) return true;
+  if (/\bnot required for (?:offline|single[- ]player|tutorials|ai)\b/i.test(value)
+      && /\b(?:online|multiplayer)\b/i.test(affirmative)) return true;
+  if (/\boptional(?:ly)?\b|\bnot (?:required|needed|necessary)\b|\bno account\b/i.test(value)) return false;
+  return true;
+}
+
+export function normalizeSteamDisclosures(record) {
+  const store = record.store?.success === 1 ? record.store : undefined;
+  const preferAppInfo = record.store_result != null && record.store_result !== 1 || store?.visible === false;
+  const extra = object(store?.extra_details) ? store.extra_details : undefined;
+  const common = record.appinfo?.common;
+  const storeCategories = object(store?.categories) ? Object.values(store.categories).flatMap(value => Array.isArray(value) ? value : []) : null;
+  const vac = preferAppInfo && object(common?.category) ? enabled(common.category.category_8)
+    : storeCategories ? storeCategories.includes(8)
+      : enabled(common?.category?.category_8) || record.fallback?.categories?.includes(8) === true;
+  const featureIds = [], knownFeatureGroups = [], details = {};
+  const observe = (key, id, value) => {
+    if (value === null) return;
+    knownFeatureGroups.push(key); if (value) featureIds.push(id);
+  };
+  if (extra) {
+    const drm = disclosureText(extra.drm_third_party_type), account = disclosureText(extra.user_account_third_party);
+    observe('third-party-drm', 10003, extra.drm_third_party_type == null || typeof extra.drm_third_party_type === 'string' ? hasThirdPartyDRM(drm) : null);
+    const required = requiresThirdPartyAccount(account);
+    observe('third-party-account', 10004, extra.user_account_third_party == null || typeof extra.user_account_third_party === 'string' ? required : null);
+    if (drm) details.drm = drm;
+    if (disclosureText(extra.drm_activation_limit)) details.drmActivationLimit = extra.drm_activation_limit.trim();
+    if (account) { details.account = account; details.accountRequired = required; }
+    if (typeof extra.user_account_third_party_link_to_steam === 'boolean') details.accountLinking = extra.user_account_third_party_link_to_steam;
+    // Even an empty message is Steam's explicit anti-cheat disclosure.
+    const antiCheat = object(extra.anticheat);
+    observe('anti-cheat', 10005, vac || antiCheat ? true : extra.anticheat == null ? false : null);
+    if (antiCheat) {
+      details.antiCheat = {};
+      if (disclosureText(extra.anticheat.name)) details.antiCheat.name = extra.anticheat.name.trim();
+      for (const [source, target] of [['kernel_mode', 'kernelMode'], ['uninstall_completely', 'uninstallsCompletely'], ['boot_protection', 'bootProtection']]) {
+        if (typeof extra.anticheat[source] === 'boolean') details.antiCheat[target] = extra.anticheat[source];
+      }
+      if (disclosureText(extra.anticheat.boot_protection_name)) details.antiCheat.bootProtectionName = extra.anticheat.boot_protection_name.trim();
+    }
+  } else if (vac) observe('anti-cheat', 10005, true);
+  if (vac) details.vac = true;
+  return { featureIds, knownFeatureGroups, disclosures: Object.keys(details).length ? details : undefined };
+}
+
 /** Small browser projection; every unprojected field remains in the raw archive. */
 export function normalizeSteamEnrichment(record, registry = new Map()) {
   const store = record.store?.success === 1 ? record.store : undefined;
@@ -39,6 +99,9 @@ export function normalizeSteamEnrichment(record, registry = new Map()) {
   const preferAppInfo = record.store_result != null && record.store_result !== 1 || store?.visible === false;
   const ids = new Set(), known = new Set();
   const set = (id, value, group) => { known.add(group); if (value) ids.add(id); };
+  const disclosure = normalizeSteamDisclosures(record);
+  for (const id of disclosure.featureIds) ids.add(id);
+  for (const group of disclosure.knownFeatureGroups) known.add(group);
   if (object(common?.category)) for (const id of [45, 46]) set(id, enabled(common.category[`category_${id}`]), 'cloud-streaming');
   else for (const id of [45, 46]) if (fallback.categories?.includes(id) ||
     Object.values(store?.categories ?? {}).some(list => Array.isArray(list) && list.includes(id))) ids.add(id);
@@ -79,7 +142,8 @@ export function normalizeSteamEnrichment(record, registry = new Map()) {
     }
   }
   const achievementCount = number(store?.extra_details?.links_and_info?.achievement_count) ?? number(fallback.achievementCount);
-  return { featureIds: [...ids].sort((a, b) => a - b), knownFeatureGroups: [...known].sort(), ...(achievementCount !== undefined ? { achievementCount } : {}), ...normalizeSteamLanguages(record) };
+  return { featureIds: [...ids].sort((a, b) => a - b), knownFeatureGroups: [...known].sort(), disclosures: disclosure.disclosures,
+    ...(achievementCount !== undefined ? { achievementCount } : {}), ...normalizeSteamLanguages(record) };
 }
 
 /** Explicit equivalent facts only. Requirements and achievement schemas are excluded. */

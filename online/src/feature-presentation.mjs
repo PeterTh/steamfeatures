@@ -62,8 +62,35 @@ export function columnState(game, column) {
       className: positive ? 'check' : status === 'playable' ? 'check playable' : status === 'unsupported' ? 'check negative' : 'dash' };
   }
   const known = isFeatureKnown(game, column), listed = game.featureIds.includes(column.id), negative = listed && column.weight < 0;
+  const neutral = listed && column.weight === 0;
   return { status: !known ? 'unknown' : listed ? 'listed' : 'not-listed', listed,
-    label: !known ? 'Unknown' : listed ? `Listed${negative ? ' · −' + Math.abs(column.weight) + ' score point' : ''}` : 'Not listed',
+    label: !known ? 'Unknown' : listed ? `Listed${negative ? ' · −' + Math.abs(column.weight) + ' score point' : neutral ? ' · 0 score points' : ''}` : 'Not listed',
     supported: known ? String(listed) : 'unknown', mark: !known ? '?' : negative ? '−' : listed ? '✓' : '–',
-    className: listed ? `check${negative ? ' negative' : ''}` : 'dash' };
+    className: listed ? `check${negative ? ' negative' : neutral ? ' neutral' : ''}` : 'dash' };
+}
+
+/** Details are available even for an optional account or explicit no-DRM text. */
+export function disclosureDetails(game, column) {
+  const data = game.disclosures ?? {};
+  if (column.id === 10003 && data.drm) return {
+    summary: game.featureIds.includes(column.id) ? 'Third-party DRM disclosed · −1 score point' : 'No third-party DRM disclosed',
+    description: data.drm, facts: data.drmActivationLimit ? [['Activation limit', data.drmActivationLimit]] : []
+  };
+  if (column.id === 10004 && data.account) return {
+    summary: data.accountRequired === true ? 'Account required for the game or some features · −1 score point'
+      : data.accountRequired === false ? 'No required third-party account disclosed · no score penalty' : 'Account requirement unclear · no score penalty',
+    description: data.account,
+    facts: data.accountLinking === true ? [['Steam account linking', 'Supported']] : []
+  };
+  if (column.id === 8 && game.featureIds.includes(8)) return {
+    summary: 'Valve Anti-Cheat advertised · 0 score points', description: 'Steam lists Valve Anti-Cheat support for this game.', facts: []
+  };
+  if (column.id !== 10005 || (!data.antiCheat && !data.vac && !game.featureIds.includes(8))) return null;
+  const anti = data.antiCheat ?? {}, vac = data.vac || game.featureIds.includes(8), facts = [];
+  if (vac && !/\bvac\b|valve anti-cheat/i.test(anti.name ?? '')) facts.push(['Valve Anti-Cheat', 'Also advertised by Steam']);
+  if (typeof anti.kernelMode === 'boolean') facts.push(['Kernel mode', anti.kernelMode ? 'Yes' : 'No']);
+  if (typeof anti.bootProtection === 'boolean') facts.push(['Boot protection', anti.bootProtection ? anti.bootProtectionName || 'Yes' : 'No']);
+  if (typeof anti.uninstallsCompletely === 'boolean') facts.push(['Fully removed on uninstall', anti.uninstallsCompletely ? 'Yes' : 'No']);
+  return { summary: 'Anti-cheat disclosed · 0 score points', facts,
+    description: anti.name || (vac ? 'Valve Anti-Cheat' : 'Anti-cheat software is disclosed; its name is not available in this snapshot.') };
 }

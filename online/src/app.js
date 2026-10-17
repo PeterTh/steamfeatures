@@ -1,13 +1,13 @@
 import { DEFAULT_QUERY, PRESETS, normalizeQuery, parseQuery, serializeQuery } from './query.mjs';
 import { parseView, serializeView } from './view-state.mjs';
-import { featureColumns, columnState, compatibilityTargets } from './feature-presentation.mjs';
+import { featureColumns, columnState, compatibilityTargets, disclosureDetails } from './feature-presentation.mjs';
 import { compatibilityDetails } from './compatibility-details.mjs';
 import { LANGUAGE_KINDS } from './languages.mjs';
 
 const $ = id => document.getElementById(id);
 const fmt = n => n == null ? 'Unknown' : new Intl.NumberFormat('en-US').format(n);
 const date = value => value && !Number.isNaN(Date.parse(value)) ? new Date(value).toISOString().slice(0, 10) : 'Unknown';
-const groupColors = { 'Play modes': '#709de0', Controllers: '#b4a0e8', 'Steam features': '#69baa9', Creation: '#e0b775', 'Remote Play': '#6bb8d2', 'Cloud streaming': '#6bb8d2', 'Display & VR': '#d095b7', Accessibility: '#becb77', 'Steam hardware': '#89c5ad' };
+const groupColors = { 'Play modes': '#709de0', Input: '#b4a0e8', 'Steam features': '#69baa9', Creation: '#e0b775', 'Features?': '#d57a84', 'Remote Play': '#6bb8d2', 'Cloud streaming': '#6bb8d2', 'Display & VR': '#d095b7', Accessibility: '#becb77', 'Steam hardware': '#89c5ad' };
 let data = {}, features = new Map(), columns = new Map(), games = new Map(), state = { ...DEFAULT_QUERY }, view = [], visibleFeatures = [], matching = 0;
 let tagOptionsBuilt = false;
 let languageOptionsBuilt = false;
@@ -24,6 +24,7 @@ let dateDraftDirty = false;
 let compatibilityAnchor = null;
 
   const paths = {
+    lock: '<rect x="5" y="10" width="14" height="12" rx="2"/><path d="M8 10V6a4 4 0 0 1 8 0v4M12 15v3"/>',
     warning: '<path d="M12 3 2 21h20ZM12 9v5m0 3v1"/>',
     link: '<path d="m10 13 4-4m-6 7-2 2a4 4 0 0 1-6-6l4-4a4 4 0 0 1 6 0m4 0 2-2a4 4 0 0 1 6 6l-4 4a4 4 0 0 1-6 0" transform="translate(1 -1)"/>',
     plus: '<path d="M4 12h16M12 4v16"/>',
@@ -144,6 +145,11 @@ let compatibilityAnchor = null;
           button.setAttribute('aria-label', `${f.name}: ${status.label}. Compatibility details for ${g.name}`);
           button.setAttribute('aria-haspopup', 'dialog'); button.setAttribute('aria-controls', 'compatibility-dialog');
           td.title += ' · Click for compatibility details'; button.append(mark); td.append(button);
+        } else if (disclosureDetails(g, f)) {
+          const button = element('button', 'compatibility-button'); button.type = 'button'; button.dataset.disclosure = f.id; button.dataset.gameId = g.id;
+          button.setAttribute('aria-label', `${f.name}: ${status.label}. Details for ${g.name}`);
+          button.setAttribute('aria-haspopup', 'dialog'); button.setAttribute('aria-controls', 'compatibility-dialog');
+          td.title += ' · Click for details'; button.append(mark); td.append(button);
         } else td.append(mark, element('span', 'sr-only', status.label));
         tr.append(td); columnCells.get(f.id).push(td); group = f.group;
       }
@@ -275,6 +281,28 @@ let compatibilityAnchor = null;
       section.append(list); content.append(section);
     }
     if (!details.length) content.append(element('p', 'compatibility-empty', 'No compatibility details are available.'));
+    const store = link(`https://store.steampowered.com/app/${game.id}/`, game.name + ' on Steam', 'compatibility-store', 'View on Steam');
+    store.append(icon('external')); content.append(store);
+    $('compatibility-dialog').showModal(); content.scrollTop = 0;
+  }
+  function showDisclosure(anchor) {
+    const game = games.get(Number(anchor.dataset.gameId)), column = columns.get(Number(anchor.dataset.disclosure));
+    if (!game || !column) return;
+    const details = disclosureDetails(game, column);
+    if (!details) return;
+    hideTip(); compatibilityAnchor = anchor;
+    const content = $('compatibility-content'), status = columnState(game, column);
+    $('compatibility-title').replaceChildren(icon(column.icon), document.createTextNode(column.name));
+    const rating = element('p', 'compatibility-rating'), mark = element('span', status.className, status.mark);
+    mark.setAttribute('aria-hidden', 'true'); rating.append(mark, document.createTextNode(details.summary));
+    content.replaceChildren(element('h3', 'compatibility-game', game.name), rating,
+      element('p', 'disclosure-description', details.description));
+    if (details.facts.length) {
+      const facts = element('dl', 'disclosure-facts');
+      for (const [label, value] of details.facts) addPair(facts, label, value);
+      content.append(facts);
+    }
+    content.append(element('p', 'tip-fine', 'These are Steam’s published disclosures. Missing information does not establish that a game is free of DRM, account requirements or anti-cheat.'));
     const store = link(`https://store.steampowered.com/app/${game.id}/`, game.name + ' on Steam', 'compatibility-store', 'View on Steam');
     store.append(icon('external')); content.append(store);
     $('compatibility-dialog').showModal(); content.scrollTop = 0;
@@ -841,6 +869,7 @@ window.addEventListener('popstate', () => { if (ready) loadURL(); });
   $('matrix').addEventListener('focusin', e => { const anchor = e.target.closest('[data-tip]'); if (anchor && !suppressFocusTip) showTip(anchor); const cell = e.target.closest('[data-feature]'); highlightColumn(cell ? Number(cell.dataset.feature) : null); });
   $('matrix').addEventListener('focusout', e => { if (!$('tooltip').contains(e.relatedTarget)) { highlightColumn(null); scheduleTipHide(); } });
   $('matrix').addEventListener('click', e => {
+    const disclosure = e.target.closest('button[data-disclosure]'); if (disclosure) { showDisclosure(disclosure); return; }
     const rating = e.target.closest('button[data-compatibility]'); if (rating) { showCompatibility(rating); return; }
     const anchor = e.target.closest('button[data-tip]'); if (anchor) showTip(anchor, true);
   });

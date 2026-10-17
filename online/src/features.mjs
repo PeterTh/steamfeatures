@@ -64,8 +64,8 @@ const stableKeys = {
   "81": "playable-without-vision",
   "82": "contrast-controls"
 };
-const weights = new Map([[60, 0], [16, 0], [35, -1], [54, 0], [23, 3], [22, 2]]);
-const multiplayerIds = new Set([1, 20, 49, 36, 47, 37, 9, 38, 48, 39, 24, 27, 44, 8, 32, 72, 73]);
+const weights = new Map([[60, 0], [16, 0], [35, -1], [8, 0], [54, 0], [23, 3], [22, 2]]);
+const multiplayerIds = new Set([1, 20, 49, 36, 47, 37, 9, 38, 48, 39, 24, 27, 44, 32, 72, 73]);
 const f = (ids, name, group, icon, short, description, accessibility = false) => ({
   id: ids[0], key: stableKeys[ids[0]], steamIds: ids, name, group, icon, short,
   description, accessibility, weight: weights.get(ids[0]) ?? 1, multiplayer: multiplayerIds.has(ids[0])
@@ -84,21 +84,21 @@ export const features = [
   f([39], 'Shared/Split Screen Co-op', 'Play modes', 'split', 'CO', 'Local cooperative play on a shared or split screen.'),
   f([24], 'Shared/Split Screen', 'Play modes', 'split', 'LOC', 'Multiple players share a screen or use a split-screen view.'),
   f([27], 'Cross-Platform Multiplayer', 'Play modes', 'cross', 'XPL', 'Multiplayer between supported platforms; the badge does not specify which platforms.'),
-  f([28], 'Full controller support', 'Controllers', 'gamepad', 'FULL', 'The game advertises full controller support.'),
-  f([18], 'Partial Controller Support', 'Controllers', 'gamepad', 'PART', 'The game supports controllers but some interactions may need a keyboard or mouse.'),
-  f([60], 'Gamepad Recommended', 'Controllers', 'gamepad', 'REC', 'A gamepad is recommended for playing this game.'),
-  f([55, 56], 'DualShock Controller Support', 'Controllers', 'gamepad', 'PS4', 'Advertised DualShock controller support; wired and Bluetooth flags count as one feature.'),
-  f([57, 58], 'DualSense Controller Support', 'Controllers', 'gamepad', 'PS5', 'Advertised DualSense controller support; wired and Bluetooth flags count as one feature.'),
-  f([59], 'Steam Input API Support', 'Controllers', 'sliders', 'API', 'Integration with the Steam Input API is advertised.'),
-  f([52], 'Tracked Controller Support', 'Controllers', 'motion', 'TRK', 'Supports tracked motion controllers for VR.'),
+  f([28], 'Full controller support', 'Input', 'gamepad', 'FULL', 'The game advertises full controller support.'),
+  f([18], 'Partial Controller Support', 'Input', 'gamepad', 'PART', 'The game supports controllers but some interactions may need a keyboard or mouse.'),
+  f([60], 'Gamepad Recommended', 'Input', 'gamepad', 'REC', 'A gamepad is recommended for playing this game.'),
+  f([55, 56], 'DualShock Controller Support', 'Input', 'gamepad', 'PS4', 'Advertised DualShock controller support; wired and Bluetooth flags count as one feature.'),
+  f([57, 58], 'DualSense Controller Support', 'Input', 'gamepad', 'PS5', 'Advertised DualSense controller support; wired and Bluetooth flags count as one feature.'),
+  f([59], 'Steam Input API Support', 'Input', 'sliders', 'API', 'Integration with the Steam Input API is advertised.'),
+  f([52], 'Tracked Controller Support', 'Input', 'motion', 'TRK', 'Supports tracked motion controllers for VR.'),
   f([22], 'Steam Achievements', 'Steam features', 'trophy', 'ACH', 'Unlock achievements recorded by Steam.'),
   f([29], 'Steam Trading Cards', 'Steam features', 'cards', 'CARD', 'Participates in Steam trading cards.'),
   f([23], 'Steam Cloud', 'Steam features', 'cloud', 'SAVE', 'Syncs supported game data through Steam Cloud.'),
   f([15], 'Stats', 'Steam features', 'chart', 'STAT', 'Advertises Steam game statistics.'),
   f([25], 'Steam Leaderboards', 'Steam features', 'podium', 'RANK', 'Compare scores or results through Steam leaderboards.'),
   f([30, 51], 'Steam Workshop', 'Steam features', 'wrench', 'MOD', 'Shares supported community content through Steam Workshop.'),
-  f([35], 'In-App Purchases', 'Steam features', 'cart', 'BUY', 'Offers purchases inside the game.'),
-  f([8], 'Valve Anti-Cheat enabled', 'Steam features', 'shield', 'VAC', 'Advertises Valve Anti-Cheat support.'),
+  f([35], 'In-App Purchases', 'Features?', 'cart', 'BUY', 'Offers purchases inside the game.'),
+  f([8], 'Valve Anti-Cheat enabled', 'Features?', 'shield', 'VAC', 'Advertises Valve Anti-Cheat support.'),
   f([62], 'Family Sharing', 'Steam features', 'people', 'FAM', 'Eligible for Steam family sharing under its applicable restrictions.'),
   f([63], 'Steam Timeline', 'Steam features', 'timeline', 'TIME', 'Advertises integration with the Steam Game Recording timeline.'),
   f([32], 'Steam Turn Notifications', 'Steam features', 'bell', 'TURN', 'Sends Steam notifications for asynchronous turns.'),
@@ -136,6 +136,8 @@ export const features = [
 ];
 const compactLabels = { FULL: 'ALL', PART: 'PAR', CARD: 'TC', SAVE: 'SAV', STAT: 'ST', RANK: 'LB', TIME: 'TL', TURN: 'TN', EDIT: 'ED', COMM: 'VO', JOIN: 'CO', ONLY: 'REQ', ITEM: 'ITM', SIZE: 'TXT', MENU: 'NAR', DIFF: 'LVL', PACE: 'OWN', CONT: 'CON' };
 features.push(...extraFeatures);
-const groupOrder = ['Play modes', 'Controllers', 'Steam features', 'Creation', 'Remote Play', 'Cloud streaming', 'Display & VR', 'Accessibility', 'Steam hardware'];
-features.sort((a, b) => groupOrder.indexOf(a.group) - groupOrder.indexOf(b.group));
+const groupOrder = ['Play modes', 'Input', 'Steam features', 'Creation', 'Features?', 'Remote Play', 'Cloud streaming', 'Display & VR', 'Accessibility', 'Steam hardware'];
+const disclosureOrder = [35, 10003, 10004, 10005, 8];
+features.sort((a, b) => groupOrder.indexOf(a.group) - groupOrder.indexOf(b.group)
+  || (a.group === 'Features?' ? disclosureOrder.indexOf(a.id) - disclosureOrder.indexOf(b.id) : 0));
 for (const feature of features) feature.short = compactLabels[feature.short] || feature.short;
