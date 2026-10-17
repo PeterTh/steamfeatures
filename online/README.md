@@ -143,6 +143,8 @@ After the first results appear, a second worker loads and prepares the full cata
 
 Each archive uses Brotli when supported, then gzip or uncompressed binary as fallbacks. Full binary, JSON and gzip JSON copies remain available for older clients and inspection. Compressed and decompressed data are verified. Both partitions and their transport variants are retained alongside the previous catalogue, with snapshot, review-cutoff, record-equivalence and picker-count checks before deployment.
 
+Uncompressed JSON is bounded at 256 MiB; binary payloads remain bounded at 150 MiB and compressed downloads at 40 MiB. These limits apply to loading, verification and retained catalog files.
+
 Binary format `steam-feature-atlas-binary-v1` stores UTF-8 titles, variable-length integers, repeated-value dictionaries, feature bitsets and tag postings in columns. Games are grouped by feature set, with app ID breaking ties. Tag postings refer to row indices in that order. The format preserves every field, including missing versus null values. See the [encoder](scripts/catalog-binary.mjs), [decoder](src/catalog-binary.mjs) and [descriptor validation](src/catalog-descriptor.mjs); incompatible changes require a new format version.
 
 The worker expands tag postings and prepares query indexes. [`verify-site.mjs`](scripts/verify-site.mjs) checks full and merged binary/JSON equivalence, compressed variants, provenance and saved refresh state before deployment.

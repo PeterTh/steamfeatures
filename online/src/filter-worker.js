@@ -1,6 +1,6 @@
 import { prepareCatalog, runQuery } from './query.mjs';
 import { decodeBinaryCatalog } from './catalog-binary.mjs';
-import { validateBinaryDescriptor, BINARY_MAX_BYTES, COMPRESSED_MAX_BYTES } from './catalog-descriptor.mjs';
+import { validateBinaryDescriptor, BINARY_MAX_BYTES, JSON_MAX_BYTES, COMPRESSED_MAX_BYTES } from './catalog-descriptor.mjs';
 import { isCompatibilityDetail } from './compatibility-details.mjs';
 import { mergeCatalogPartitions, queryUsesPriority, validateProgressiveDescriptor, PRIORITY_MIN_REVIEWS } from './progressive-catalog.mjs';
 
@@ -130,7 +130,7 @@ async function legacyCatalog(current, context) {
   const { manifestAddress, expectedOrigin, fetchImpl, cryptoImpl, DecompressionStreamImpl } = context;
   if (typeof current.catalog !== 'string' || !current.catalog) throw new Error('The manifest does not identify a catalog.');
   const plainURL = catalogURL(current.catalog, manifestAddress, expectedOrigin);
-  expectedSize(current.bytes, BINARY_MAX_BYTES, 'catalog');
+  expectedSize(current.bytes, JSON_MAX_BYTES, 'catalog');
   const gzipURL = current.compressedCatalog ? catalogURL(current.compressedCatalog, manifestAddress, expectedOrigin) : null;
   if (gzipURL) expectedSize(current.gzipBytes, COMPRESSED_MAX_BYTES, 'compressed catalog');
   let bytes;
@@ -141,7 +141,7 @@ async function legacyCatalog(current, context) {
     try {
       const compressed = await downloadBytes(gzipURL, { bytes: current.gzipBytes, sha256: current.gzipSha256 },
         fetchImpl, cryptoImpl, manifestAddress, COMPRESSED_MAX_BYTES, 'compressed catalog');
-      bytes = await readBytes(new Blob([compressed]).stream().pipeThrough(stream), current.bytes, BINARY_MAX_BYTES, 'catalog');
+      bytes = await readBytes(new Blob([compressed]).stream().pipeThrough(stream), current.bytes, JSON_MAX_BYTES, 'catalog');
       await digest(bytes, current.sha256, cryptoImpl, 'catalog');
       compression = 'gzip';
     } catch (error) {
@@ -151,7 +151,7 @@ async function legacyCatalog(current, context) {
   }
   if (!bytes) {
     try {
-      bytes = await downloadBytes(plainURL, current, fetchImpl, cryptoImpl, manifestAddress, BINARY_MAX_BYTES, 'catalog');
+      bytes = await downloadBytes(plainURL, current, fetchImpl, cryptoImpl, manifestAddress, JSON_MAX_BYTES, 'catalog');
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
       throw new Error(compressedError ? `The compressed and fallback catalogs could not load. ${detail}` : detail);

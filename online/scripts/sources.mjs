@@ -10,7 +10,7 @@ import { gunzipSync } from 'node:zlib';
 import { validateRefreshState } from './refresh-state.mjs';
 import { validateSteamArchiveSnapshot } from './steam-archive-snapshot.mjs';
 import { STEAM_DATA_FORMAT, validateSteamDataDescriptor } from './steam-data.mjs';
-import { validateBinaryDescriptor, BINARY_MAX_BYTES, COMPRESSED_MAX_BYTES } from '../src/catalog-descriptor.mjs';
+import { validateBinaryDescriptor, BINARY_MAX_BYTES, JSON_MAX_BYTES, COMPRESSED_MAX_BYTES } from '../src/catalog-descriptor.mjs';
 import { validateProgressiveDescriptor } from '../src/progressive-catalog.mjs';
 
 export const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
@@ -171,8 +171,8 @@ export async function retainPreviousCatalog(previous, directory, currentDescript
   if (!previous || previous.manifest.current.sha256 === currentDescriptor.sha256) return null;
   const descriptor = validateCatalogDescriptor(previous.manifest.current);
   const files = [
-    { file: descriptor.catalog, hash: descriptor.sha256, maximumBytes: 150 * 1024 * 1024 },
-    { file: descriptor.compressedCatalog, hash: descriptor.gzipSha256, maximumBytes: 40 * 1024 * 1024 },
+    { file: descriptor.catalog, hash: descriptor.sha256, maximumBytes: JSON_MAX_BYTES },
+    { file: descriptor.compressedCatalog, hash: descriptor.gzipSha256, maximumBytes: COMPRESSED_MAX_BYTES },
   ];
   for (const binary of [descriptor.binary, descriptor.progressive?.priority, descriptor.progressive?.remainder].filter(Boolean)) {
     for (const [entry, maximumBytes] of [[binary, BINARY_MAX_BYTES], [binary.gzip, COMPRESSED_MAX_BYTES], [binary.brotli, COMPRESSED_MAX_BYTES]]) {

@@ -1,13 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { webcrypto } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { brotliCompressSync, gzipSync } from 'node:zlib';
 import { verifyPublishedSite, verifySite } from '../scripts/verify-site.mjs';
 import { applyRefreshResults, createRefreshState } from '../scripts/refresh-state.mjs';
-import { sha256 } from '../scripts/sources.mjs';
+import { retainPreviousCatalog, sha256 } from '../scripts/sources.mjs';
 import { writeBinaryCatalog, writeProgressiveCatalog } from '../scripts/catalog-package.mjs';
+import { JSON_MAX_BYTES } from '../src/catalog-descriptor.mjs';
+import { loadCatalog } from '../src/filter-worker.js';
 
 async function siteFixture(t, catalogInput) {
   const directory = await mkdtemp(join(tmpdir(), 'steam-atlas-verify-'));
@@ -62,6 +65,46 @@ test('deployment verification accepts a complete package and enforces the produc
   const { directory, manifest } = await siteFixture(t);
   assert.deepEqual(await verifySite(directory, { minimumGames: 1 }), { games: 1, stateApps: 1, rawApps: 1, catalogSha256: manifest.current.sha256 });
   await assert.rejects(verifySite(directory), /at least 50000 games/);
+});
+
+test('JSON above 150 MiB verifies, loads both ways and remains retainable within its separate limit', async t => {
+  const fixture = await siteFixture(t);
+  // Trailing JSON whitespace exercises the real byte limit without expanding
+  // the parsed catalog or creating a large feature/game fixture.
+  const bytes = Buffer.alloc(150 * 1024 * 1024 + 1, 0x20);
+  Buffer.from(JSON.stringify(fixture.catalog)).copy(bytes);
+  const compressed = gzipSync(bytes, { level: 1 }), checksum = sha256(bytes);
+  const current = { catalog: `catalog.${checksum.slice(0, 16)}.json`, compressedCatalog: `catalog.${checksum.slice(0, 16)}.json.gz`,
+    sha256: checksum, gzipSha256: sha256(compressed), bytes: bytes.length, gzipBytes: compressed.length };
+  fixture.manifest.current = current;
+  await fixture.put('data/' + current.catalog, bytes);
+  await fixture.put('data/' + current.compressedCatalog, compressed);
+  await fixture.saveManifest(); await fixture.saveProvenance();
+  assert.equal((await verifySite(fixture.directory, { minimumGames: 1 })).games, 1);
+
+  const manifestURL = new URL('https://example.test/data/manifest.json'), requests = [];
+  const fetchImpl = async url => {
+    const filename = new URL(url).pathname.split('/').at(-1); requests.push(filename);
+    return new Response(filename === 'manifest.json' ? JSON.stringify(fixture.manifest)
+      : filename === current.catalog ? bytes : compressed);
+  };
+  for (const DecompressionStreamImpl of [globalThis.DecompressionStream, null]) {
+    const loaded = await loadCatalog(manifestURL, { fetchImpl, cryptoImpl: webcrypto, DecompressionStreamImpl });
+    assert.deepEqual(loaded.catalog, fixture.catalog);
+    assert.equal(loaded.compression, DecompressionStreamImpl ? 'gzip' : 'uncompressed');
+  }
+  const originalFetch = globalThis.fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+  globalThis.fetch = fetchImpl;
+  const retained = join(fixture.directory, 'retained'); await mkdir(retained);
+  assert.deepEqual(await retainPreviousCatalog({ manifest: fixture.manifest, manifestURL }, retained, { sha256: '0'.repeat(64) }), current);
+  assert.equal((await stat(join(retained, current.catalog))).size, bytes.length);
+
+  current.bytes = JSON_MAX_BYTES + 1; await fixture.saveManifest();
+  await assert.rejects(verifySite(fixture.directory, { minimumGames: 1 }), /Invalid checksum or size/);
+  const before = requests.length;
+  await assert.rejects(loadCatalog(manifestURL, { fetchImpl, cryptoImpl: webcrypto }), /Invalid catalog size/);
+  assert.equal(requests.length, before + 1, 'Oversized descriptors stop before downloading a payload');
 });
 
 for (const field of ['catalog', 'compressedCatalog', 'refreshState', 'steamArchive']) {

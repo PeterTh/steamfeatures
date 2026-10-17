@@ -1,6 +1,7 @@
 import { BINARY_FORMAT } from './catalog-binary.mjs';
 
 export const BINARY_MAX_BYTES = 150 * 1024 * 1024;
+export const JSON_MAX_BYTES = 256 * 1024 * 1024;
 export const COMPRESSED_MAX_BYTES = 40 * 1024 * 1024;
 
 function payload(value, filename, maximumBytes, label) {

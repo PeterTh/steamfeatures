@@ -5,7 +5,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { brotliDecompressSync, gunzipSync } from 'node:zlib';
 import { prepareCatalog } from '../src/query.mjs';
 import { decodeBinaryCatalog } from '../src/catalog-binary.mjs';
-import { BINARY_MAX_BYTES, COMPRESSED_MAX_BYTES } from '../src/catalog-descriptor.mjs';
+import { BINARY_MAX_BYTES, JSON_MAX_BYTES, COMPRESSED_MAX_BYTES } from '../src/catalog-descriptor.mjs';
 import { mergeCatalogPartitions, PRIORITY_MIN_REVIEWS } from '../src/progressive-catalog.mjs';
 import { validateRefreshState } from './refresh-state.mjs';
 import { validateSteamArchiveSnapshot } from './steam-archive-snapshot.mjs';
@@ -36,9 +36,9 @@ async function checkedFile(directory, filename, checksum, size, maximumBytes) {
 async function catalogBytes(directory, descriptor) {
   validateCatalogDescriptor(descriptor);
   if (!descriptor.catalog.includes(descriptor.sha256.slice(0, 16))) throw new Error('Catalog filename does not match its checksum.');
-  const bytes = await checkedFile(directory, descriptor.catalog, descriptor.sha256, descriptor.bytes, 150 * 1024 * 1024);
-  const compressed = await checkedFile(directory, descriptor.compressedCatalog, descriptor.gzipSha256, descriptor.gzipBytes, 40 * 1024 * 1024);
-  if (!gunzipSync(compressed, { maxOutputLength: 150 * 1024 * 1024 }).equals(bytes)) throw new Error('Compressed catalog does not match the JSON catalog.');
+  const bytes = await checkedFile(directory, descriptor.catalog, descriptor.sha256, descriptor.bytes, JSON_MAX_BYTES);
+  const compressed = await checkedFile(directory, descriptor.compressedCatalog, descriptor.gzipSha256, descriptor.gzipBytes, COMPRESSED_MAX_BYTES);
+  if (!gunzipSync(compressed, { maxOutputLength: JSON_MAX_BYTES }).equals(bytes)) throw new Error('Compressed catalog does not match the JSON catalog.');
   if (descriptor.binary) await verifyBinaryCatalog(directory, descriptor.binary, JSON.parse(bytes));
   if (descriptor.progressive) await verifyProgressiveCatalog(directory, descriptor.progressive, JSON.parse(bytes));
   return bytes;
