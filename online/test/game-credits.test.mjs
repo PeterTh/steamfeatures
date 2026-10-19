@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { webcrypto } from 'node:crypto';
@@ -82,7 +82,9 @@ test('developer/publisher URLs preserve punctuation, normalize whitespace and re
 });
 
 test('packaged files verify, use gzip without probing unsupported Brotli, and recover to raw after corruption', async t => {
-  const cache = resolve(dirname(fileURLToPath(import.meta.url)), '../.cache'), directory = await mkdtemp(resolve(cache, 'credits-test-'));
+  const cache = resolve(dirname(fileURLToPath(import.meta.url)), '../.cache');
+  await mkdir(cache, { recursive: true });
+  const directory = await mkdtemp(resolve(cache, 'credits-test-'));
   t.after(async () => { assert.equal(dirname(directory), cache); await rm(directory, { recursive: true, force: true }); });
   const descriptor = await writeGameCredits(catalog.games, credits, directory, snapshot);
   await verifyGameCredits(directory, descriptor, catalog.games, snapshot);
