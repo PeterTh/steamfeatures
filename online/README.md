@@ -52,6 +52,14 @@ npm run build -- --sources .cache/prepared-sources.json --finalize-steam
 
 `--sources` alone builds from the bulk files without merging saved Steam metadata. `--finalize-steam` includes that metadata and checks bootstrap coverage using the checkpoint and archived responses.
 
+### Developer and publisher data
+
+Builds extract the listed developer/publisher names from the archived StoreBrowse/PICS and fallback data, without additional Steam requests. The separate `gameCredits` manifest entry pins a shared-name/shared-credit-combination binary file to the full catalog snapshot. Its app-ID index uses delta integers; raw, gzip and Brotli representations are verified with the production package.
+
+The browser loads this file in its full-catalog worker after the initial and background catalog files. It attaches a credit lookup without rebuilding the feature index. The Developers panel has separate case-insensitive substring fields, combined with AND; shared links use `dev` and `pub`. Missing credits cannot satisfy an active role filter. Cards display both roles once the file is ready; clicking an individual name sets that role's filter, or clears it if the name is highlighted, and keeps the card open.
+
+The 198,879-game local snapshot produces 3,689,891 raw bytes, 1,964,859 gzip bytes and 1,715,903 Brotli bytes. The catalog downloads themselves are unchanged. File details appear in Data & counting rules after loading.
+
 ## Publish to GitHub Pages
 
 Push the source to a public repository and select **Settings → Pages → Build and deployment → GitHub Actions**. The workflow needs permission to deploy Pages and commit `online/provenance-lock.json`; branch protection must allow that bot commit.

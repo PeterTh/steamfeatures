@@ -3,9 +3,10 @@ import { isFeatureKnown, featureWeight } from './extra-features.mjs';
 import { presentationFeatures, featureColumns, compatibilityTargets } from './feature-presentation.mjs';
 import { LANGUAGE_KINDS, decodeLanguageBits, languageFlags, languageIndex } from './languages.mjs';
 import { featureCodes } from './feature-codes.mjs';
+import { normalizeCreditSearch, gameCreditNames } from './game-credits.mjs';
 export const PAGE_SIZE = 50;
 export const DEFAULT_QUERY = Object.freeze({
-  q: '', has: Object.freeze([]), not: Object.freeze([]),
+  q: '', developer: '', publisher: '', has: Object.freeze([]), not: Object.freeze([]),
   hasTags: Object.freeze([]), notTags: Object.freeze([]), minReviews: 20,
   hasLanguages: Object.freeze([]), notLanguages: Object.freeze([]),
   includeEarlyAccess: false, includeAccessibility: false, includeMultiplayer: false, includeHardware: false,
@@ -183,6 +184,8 @@ export function normalizeQuery(input = {}, features, tags = [], languages = []) 
   }
   return {
     q: String(source.q ?? '').normalize('NFKC').trim(), has, not, hasTags, notTags, hasLanguages, notLanguages,
+    developer: String(source.developer ?? '').normalize('NFKC').trim(),
+    publisher: String(source.publisher ?? '').normalize('NFKC').trim(),
     minReviews: wholeNumber(source.minReviews, DEFAULT_QUERY.minReviews, 0, 'Minimum reviews'),
     includeEarlyAccess: booleanValue(source.includeEarlyAccess, DEFAULT_QUERY.includeEarlyAccess, 'Early Access'),
     includeAccessibility: booleanValue(source.includeAccessibility, DEFAULT_QUERY.includeAccessibility, 'Accessibility'),
@@ -206,7 +209,7 @@ export function parseQuery(search = '', features, tags = [], languages = []) {
   if (version !== undefined && version !== '1') throw new Error(`Unsupported query version: ${version}.`);
   const split = key => params.getAll(key).flatMap(value => value.split(',')).map(value => value.trim()).filter(Boolean);
   return normalizeQuery({
-    q: single('q'), has: split('has'), not: split('not'), minReviews: single('minReviews'),
+    q: single('q'), developer: single('dev'), publisher: single('pub'), has: split('has'), not: split('not'), minReviews: single('minReviews'),
     hasTags: params.getAll('tag'), notTags: params.getAll('notTag'),
     hasLanguages: split('lang'), notLanguages: split('notLang'),
     includeEarlyAccess: single('ea'), includeAccessibility: single('a11y'), includeMultiplayer: single('mp'), includeHardware: single('hw'),
@@ -222,6 +225,8 @@ export function serializeQuery(input, features, tags = [], languages = []) {
   const index = featureIndex(features);
   const params = new URLSearchParams();
   if (query.q) params.set('q', query.q);
+  if (query.developer) params.set('dev', query.developer);
+  if (query.publisher) params.set('pub', query.publisher);
   if (query.has.length) params.set('has', query.has.map(id => index.codes.token(index.byId.get(id))).sort().join(','));
   if (query.not.length) params.set('not', query.not.map(id => index.codes.token(index.byId.get(id))).sort().join(','));
   for (const tag of query.hasTags) params.append('tag', tag);
@@ -349,6 +354,17 @@ export function prepareCatalog(catalog) {
   return prepared;
 }
 
+/** Attach only the late metadata; keep the prepared feature/language indexes intact. */
+export function attachGameCredits(catalog, credits) {
+  const prepared = prepareCatalog(catalog);
+  const sorted = [...prepared.games].sort((a, b) => a.game.id - b.game.id);
+  if (sorted.length !== credits.appIds.length || sorted.some((row, i) => row.game.id !== credits.appIds[i])) throw new Error('Developer/publisher app IDs do not match the catalog.');
+  const foldedNames = credits.names.map(normalizeCreditSearch);
+  sorted.forEach((row, i) => { row.credits = credits.pairs[credits.pairIds[i]]; });
+  prepared.gameCredits = credits; prepared.creditSearchNames = foldedNames;
+  return prepared;
+}
+
 function compareNullable(a, b, direction = -1) {
   if (a === b) return 0;
   if (a === null) return 1;
@@ -360,6 +376,9 @@ function compareNullable(a, b, direction = -1) {
 export function runQuery(catalog, input = DEFAULT_QUERY) {
   const prepared = prepareCatalog(catalog);
   const query = normalizeQuery(input, prepared.features, prepared.tags, prepared.languages);
+  const creditTerms = [normalizeCreditSearch(query.developer), normalizeCreditSearch(query.publisher)];
+  const filterCredits = creditTerms.some(Boolean);
+  if (filterCredits && !prepared.gameCredits) throw new Error('Developer and publisher data has not loaded.');
   const languageRules = [['hasLanguages', true], ['notLanguages', false]].flatMap(([field, required]) => query[field].map(value => {
     const [key, kind] = value.split(':');
     return { id: prepared.languagesByKey.get(key).id, bit: LANGUAGE_KINDS.find(item => item.key === kind).bit, required };
@@ -385,6 +404,7 @@ export function runQuery(catalog, input = DEFAULT_QUERY) {
     if (releaseFrom && (row.release === null || row.release < releaseFrom)) return false;
     if (releaseTo && (row.release === null || row.release > releaseTo)) return false;
     if (title && !row.title.includes(title)) return false;
+    if (filterCredits && creditTerms.some((term, role) => term && !row.credits?.[role]?.some(id => prepared.creditSearchNames[id].includes(term)))) return false;
     if (query.minReviews > 0 && (row.reviews === null || row.reviews < query.minReviews)) return false;
     if (constrainedFeatures.some(feature => !isFeatureKnown(game, feature))) return false;
     if (query.has.some(id => !game.featureIds.includes(id))) return false;
@@ -427,6 +447,7 @@ export function runQuery(catalog, input = DEFAULT_QUERY) {
     previousRankValue = rankValue;
     if (position >= start) rows.push({
       ...row.game, reviews: row.reviews, positivePercent: row.rating, count: count(row), score: score(row),
+      ...(prepared.gameCredits ? gameCreditNames(prepared.gameCredits, row.credits) : {}),
       rank: competitionRanks ? (rankValue === null ? null : currentRank) : position + 1,
     });
   }

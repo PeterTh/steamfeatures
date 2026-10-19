@@ -6,6 +6,7 @@ import { normalizeStoreItem } from './steam-refresh.mjs';
 import { readSteamResponseArchive } from './steam-archive.mjs';
 import { STEAM_DATA_REQUEST } from './steam-client.mjs';
 import { headerImagePath } from './game-images.mjs';
+import { normalizeGameCredits } from './game-credits.mjs';
 
 export async function openSteamData({ filename, previous, journalDirectory, requireExisting = false, state, checkpointOnly = false }) {
   if (requireExisting) await stat(filename);
@@ -60,12 +61,13 @@ export function withSteamData(client, picsClient, store) {
   };
 }
 
-export function projectSteamData(store, state, features, { imagePaths } = {}) {
+export function projectSteamData(store, state, features, { imagePaths, credits } = {}) {
   const registry = new Map(features.map(feature => [feature.id, feature]));
   const tagNames = new Map((store.setting('tags') ?? []).map(tag => [Number(tag.tagid), tag.name]));
   const projections = new Map();
   const aliases = new Map(features.flatMap(feature => feature.steamIds.map(id => [id, feature.id])));
   for (const row of store.rows()) {
+    if (credits) credits.set(row.id, normalizeGameCredits(row));
     const imagePath = imagePaths && headerImagePath(row);
     if (imagePath && imagePath !== 'header.jpg') imagePaths.set(row.id, imagePath);
     const previous = state.apps[row.id];

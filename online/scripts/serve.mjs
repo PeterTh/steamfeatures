@@ -21,7 +21,7 @@ createServer(async (request, response) => {
     const actual = await realpath(file);
     if (!actual.startsWith(`${await realpath(root)}${sep}`)) { response.writeHead(403).end('Forbidden'); return; }
     const bytes = await readFile(actual);
-    response.writeHead(200, { 'Content-Type': mime[extname(actual)] || 'application/octet-stream', 'Content-Length': bytes.length, 'Cache-Control': /catalog\.[a-f0-9]{16}\.(?:json(?:\.gz)?|bin(?:\.(?:gz|br))?)$/.test(actual) ? 'public, max-age=31536000, immutable' : 'no-cache', 'X-Content-Type-Options': 'nosniff' });
+    response.writeHead(200, { 'Content-Type': mime[extname(actual)] || 'application/octet-stream', 'Content-Length': bytes.length, 'Cache-Control': /(?:catalog|game-credits)\.[a-f0-9]{16}\.(?:json(?:\.gz)?|bin(?:\.(?:gz|br))?)$/.test(actual) ? 'public, max-age=31536000, immutable' : 'no-cache', 'X-Content-Type-Options': 'nosniff' });
     response.end(request.method === 'HEAD' ? undefined : bytes);
   } catch (error) {
     response.writeHead(error.code === 'ENOENT' || error.code === 'ENOTDIR' ? 404 : 500).end('File unavailable');

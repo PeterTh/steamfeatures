@@ -4,6 +4,7 @@ import { featureColumns, columnState, compatibilityTargets, disclosureDetails } 
 import { compatibilityDetails } from './compatibility-details.mjs';
 import { LANGUAGE_KINDS } from './languages.mjs';
 import { createGameImageLoader, steamHeaderURL } from './game-images.mjs';
+import { normalizeCreditSearch } from './game-credits.mjs';
 
 const $ = id => document.getElementById(id);
 const fmt = n => n == null ? 'Unknown' : new Intl.NumberFormat('en-US').format(n);
@@ -15,6 +16,11 @@ let languageOptionsBuilt = false;
 let worker, ready = false, requestId = 0, latestRequest = 0, latestResult = null, inputTimer;
 let fullWorker, fullReady = false, backgroundStarted = false, backgroundError = null, pendingFullQuery = false;
 let lastSubmittedQuery = null, completedRequest = 0, fullReadyAt = null;
+let creditsStatus = 'idle', creditsError = null, creditsFile = null, pendingCreditsQuery = false;
+let creditsRefreshRequest = 0;
+const creditFields = [['developer', 'Developer'], ['publisher', 'Publisher']];
+const textFields = [['q', 'search', 'q'], ['developer', 'developer-filter', 'dev'], ['publisher', 'publisher-filter', 'pub']];
+const textFilterPatch = () => Object.fromEntries(textFields.map(([field, id]) => [field, $(id).value]));
 let tipAnchor = null, tipPinned = false, currentColumn = null, suppressFocusTip = false, columnCells = new Map();
 let tipHideTimer, focusFeatureAfterRender = null;
 let preserveGameTip = false;
@@ -106,6 +112,10 @@ let gameCard = null, tipSearch = null, loadGameImage = createGameImageLoader(nul
     if (!keepGameTip) hideTip();
     highlightColumn(null); columnCells = new Map();
     view = latestResult.rows.map(g => ({ ...g, featureSet: new Set(g.featureIds) })); games = new Map(view.map(g => [g.id,g])); matching = latestResult.total; visibleFeatures = latestResult.columns.map(id => columns.get(id));
+    if (keepGameTip && gameCard) {
+      const credits = latestResult.pinnedCredits ?? games.get(gameCard.id);
+      if (credits) updateCardCredits(credits);
+    }
     $('legend-listed-label').textContent = state.includeHardware ? 'Listed / Verified' : 'Listed';
     $('legend-absent-label').textContent = 'Not listed';
     $('legend-unknown-label').textContent = state.includeHardware ? 'Untested / Unknown' : 'Unknown';
@@ -275,6 +285,35 @@ let gameCard = null, tipSearch = null, loadGameImage = createGameImageLoader(nul
     tipAnchor.setAttribute('aria-expanded', 'true');
   }
   function addPair(dl, label, value) { dl.append(element('dt', '', label), element('dd', '', value)); }
+  function updateCardCredits(values) {
+    if (!gameCard?.dl || values.developerNames === undefined) return;
+    if (!gameCard.creditRows) {
+      gameCard.creditRows = creditFields.map(() => [element('dt'), element('dd', 'card-credits')]);
+      gameCard.dl.prepend(...gameCard.creditRows.flat());
+    }
+    gameCard.creditNames ??= {};
+    creditFields.forEach(([role, label], i) => {
+      const names = values[role + 'Names'], [term, description] = gameCard.creditRows[i];
+      const signature = JSON.stringify(names);
+      if (gameCard.creditNames[role] === signature) return;
+      gameCard.creditNames[role] = signature;
+      term.textContent = label + (names?.length > 1 ? 's' : '');
+      description.replaceChildren();
+      if (!names?.length) description.textContent = names === null ? 'Unknown' : 'Not listed';
+      else names.forEach((name, index) => {
+        const button = element('button', 'tip-credit', name); button.type = 'button';
+        button.dataset.creditRole = role; button.dataset.creditName = name;
+        button.addEventListener('click', () => {
+          if (!tipPinned) pinTip();
+          setFilters({ [role]: matchesCreditFilter(role, name) ? '' : name }, true, true);
+        });
+        if (index) description.append(document.createTextNode(' · '));
+        description.append(button);
+      });
+    });
+    syncGameCredits();
+    positionTip();
+  }
   function showCompatibility(anchor) {
     const game = games.get(Number(anchor.dataset.gameId)), column = columns.get(Number(anchor.dataset.compatibility));
     if (!game || !column?.statuses) return;
@@ -385,6 +424,7 @@ let gameCard = null, tipSearch = null, loadGameImage = createGameImageLoader(nul
       if (g.achievementCount !== undefined) addPair(dl, 'Achievements', fmt(g.achievementCount));
       if (g.metadataUpdatedAt) addPair(dl, 'Steam metadata checked', date(g.metadataUpdatedAt));
       body.append(dl);
+      card.dl = dl; updateCardCredits(g);
       const destinations = element('p', 'tip-game-links');
       for (const [index, destination] of gameDestinations(g).entries()) {
         if (index) destinations.append(document.createTextNode(' · '));
@@ -449,6 +489,7 @@ function startWorker() {
   if (fullWorker !== worker) fullWorker?.terminate();
   fullWorker = null; fullReady = false; backgroundStarted = false; backgroundError = null;
   pendingFullQuery = false; lastSubmittedQuery = null; completedRequest = 0; fullReadyAt = null;
+  creditsStatus = 'idle'; creditsError = null; creditsFile = null; pendingCreditsQuery = false; syncCreditsControls();
   $('catalog-progress').hidden = true; $('catalog-retry').hidden = true;
   worker?.terminate(); ready = false; requestedSearch = null;
   $('query-controls').disabled = true;
@@ -459,6 +500,7 @@ function startWorker() {
   worker.addEventListener('error', ({ target }) => { if (target === worker) showError('The catalog worker could not start. Reload this page or try a browser that supports module workers.', true); });
   worker.addEventListener('message', ({ target, data: message }) => {
     if (target !== worker) return;
+    if (receiveCredits(message)) return;
     if (message.type === 'error') {
       if (message.requestId != null && message.requestId !== latestRequest) return;
       showError(message.message, !ready); return;
@@ -481,13 +523,59 @@ function receiveResult(message) {
   if (message.type !== 'result' || message.requestId !== latestRequest) return;
   completedRequest = message.requestId;
   latestResult = message.result;
+  if (message.requestId === creditsRefreshRequest) {
+    // Metadata arrival must not replace rows, reset scroll, or close a dialog.
+    for (const row of latestResult.rows) {
+      const game = games.get(row.id);
+      if (game) Object.assign(game, { developerNames: row.developerNames, publisherNames: row.publisherNames });
+    }
+    if (gameCard) updateCardCredits(latestResult.pinnedCredits ?? games.get(gameCard.id) ?? {});
+    $('results').removeAttribute('aria-busy');
+    return;
+  }
   state = latestResult.query;
   requestedSearch = serializeQuery(state, data.features, data.tags, data.languages);
   writeURL(state);
-  syncControls(true, true); render();
+  syncControls(true, true, true); render();
   $('error').hidden = true; $('loading').hidden = true; $('results').hidden = false; $('results').removeAttribute('aria-busy');
   updateMatrixLayout();
   if (data.progressive?.partial && !backgroundStarted) requestAnimationFrame(() => requestAnimationFrame(() => startBackgroundCatalog()));
+  if (fullReady && creditsStatus === 'idle') scheduleCredits();
+}
+function syncCreditsControls() {
+  for (const [role] of creditFields) $(role + '-filter').disabled = creditsStatus !== 'ready';
+  $('credits-status').hidden = creditsStatus === 'ready';
+  $('credits-retry').hidden = creditsStatus !== 'error';
+  $('credits-status-text').textContent = creditsStatus === 'error' ? 'Developer and publisher data could not load.'
+    : creditsStatus === 'unavailable' ? 'Developer and publisher data is unavailable in this snapshot.' : 'Developer and publisher data is loading…';
+}
+function scheduleCredits() { requestAnimationFrame(() => requestAnimationFrame(() => startCredits())); }
+function startCredits(retry = false) {
+  if (!ready || !fullReady || creditsStatus === 'loading' || creditsStatus === 'ready' || (creditsStatus === 'error' && !retry)) return;
+  creditsStatus = data.gameCredits ? 'loading' : 'unavailable'; creditsError = null;
+  syncCreditsControls();
+  if (creditsStatus === 'unavailable') { if (pendingCreditsQuery) creditsFailed('Developer and publisher data is unavailable in this snapshot.'); return; }
+  if (pendingCreditsQuery) {
+    $('catalog-progress').hidden = false; $('catalog-retry').hidden = true;
+    $('catalog-status').textContent = 'Loading developer and publisher data to apply this filter…';
+  }
+  worker.postMessage({ type: 'credits', descriptor: data.gameCredits, snapshot: data.snapshot, manifestURL: new URL('./data/manifest.json', location.href).href });
+}
+function creditsFailed(message) {
+  creditsStatus = 'error'; creditsError = message; syncCreditsControls();
+  if (pendingCreditsQuery) {
+    $('loading').hidden = true; $('catalog-progress').hidden = false; $('catalog-retry').hidden = false;
+    $('catalog-status').textContent = 'Developer and publisher data could not load. Retry, or clear these filters.';
+  }
+}
+function receiveCredits(message) {
+  if (message.type === 'error' && message.phase === 'credits') { creditsFailed(message.message); return true; }
+  if (message.type !== 'credits-ready') return false;
+  creditsStatus = 'ready'; creditsError = null; creditsFile = { compression: message.compression, bytes: message.bytes };
+  syncCreditsControls(); updateMetadata();
+  // A newer typing draft belongs to its debounce, rather than this completion.
+  if (lastSubmittedQuery?.requestId === latestRequest) query(true, !pendingCreditsQuery && completedRequest === latestRequest);
+  return true;
 }
 function backgroundFailed(message) {
   backgroundError = message;
@@ -508,6 +596,7 @@ function startBackgroundCatalog(retry = false) {
   });
   fullWorker.addEventListener('message', ({ target, data: message }) => {
     if (target !== fullWorker) return;
+    if (receiveCredits(message)) return;
     if (message.type === 'error') {
       if (target !== worker) backgroundFailed(message.message);
       else if (message.requestId == null || message.requestId === latestRequest) showError(message.message, !ready);
@@ -520,12 +609,13 @@ function startBackgroundCatalog(retry = false) {
       const previous = worker; worker = fullWorker;
       data.progressive = message.progressive;
       updateMetadata();
-      $('catalog-progress').hidden = true;
+      $('catalog-progress').hidden = !pendingCreditsQuery;
       pendingFullQuery = false;
       previous.terminate();
       // A terminated worker may have an outstanding result. Reissue only the
       // latest submitted query, never a newer search draft awaiting its debounce.
-      if (lastSubmittedQuery?.requestId === latestRequest && completedRequest !== latestRequest) worker.postMessage({ type: 'query', ...lastSubmittedQuery });
+      if (!pendingCreditsQuery && lastSubmittedQuery?.requestId === latestRequest && completedRequest !== latestRequest) worker.postMessage({ type: 'query', ...lastSubmittedQuery });
+      scheduleCredits();
     } else receiveResult(message);
   });
   fullWorker.postMessage({ type: 'init', mode: 'full', plan: data.progressive.plan });
@@ -547,17 +637,28 @@ function loadURL() {
     else query();
   } catch (error) { latestRequest = ++requestId; showError('This link has invalid filters: ' + error.message); }
 }
-function query(keepGameTip = false) {
+function query(keepGameTip = false, creditsOnly = false) {
   preserveGameTip = keepGameTip && tipPinned && tipAnchor?.dataset.tip === 'game';
-  if (!preserveGameTip) hideTip();
+  if (!preserveGameTip && !creditsOnly) hideTip();
   $('error').hidden = true;
   $('results').setAttribute('aria-busy', 'true');
   latestRequest = ++requestId;
+  creditsRefreshRequest = creditsOnly ? latestRequest : 0;
   activeQueryRequest = latestRequest;
   requestedSearch = serializeQuery(state, data.features, data.tags, data.languages);
   pendingFullQuery = false;
+  pendingCreditsQuery = false;
   $('catalog-progress').hidden = !backgroundError;
-  lastSubmittedQuery = { requestId: latestRequest, query: state };
+  lastSubmittedQuery = { requestId: latestRequest, query: state, ...(tipPinned && gameCard ? { pinnedGameId: gameCard.id } : {}) };
+  if ((state.developer || state.publisher) && creditsStatus !== 'ready') {
+    pendingCreditsQuery = true;
+    $('results').hidden = true;
+    if (data.progressive?.partial && !fullReady) startBackgroundCatalog();
+    else startCredits();
+    $('catalog-progress').hidden = false; $('catalog-retry').hidden = creditsStatus !== 'error';
+    $('catalog-status').textContent = creditsStatus === 'error' ? 'Developer and publisher data could not load. Retry, or clear these filters.' : 'Loading developer and publisher data to apply this filter…';
+    return;
+  }
   if (!data.progressive?.partial || state.minReviews >= data.progressive.plan.minReviews) worker.postMessage({ type: 'query', ...lastSubmittedQuery });
   else {
     pendingFullQuery = true;
@@ -573,13 +674,15 @@ function setFilters(patch, resetPage = true, keepGameTip = false) {
     const next = normalizeQuery({ ...state, ...patch, ...(resetPage && !('page' in patch) ? { page: 1 } : {}) }, data.features, data.tags, data.languages);
     writeURL(next, 'push');
     state = next;
-    syncControls(!('releaseFrom' in patch) && !('releaseTo' in patch), !('q' in patch) || patch.q === $('search').value);
+    syncControls(!('releaseFrom' in patch) && !('releaseTo' in patch), !('q' in patch) || patch.q === $('search').value,
+      creditFields.every(([role]) => !(role in patch) || patch[role] === $(role + '-filter').value));
     query(keepGameTip);
   } catch (error) { showError(error.message); }
 }
-function syncControls(preserveDateDraft = false, preserveSearchDraft = false) {
+function syncControls(preserveDateDraft = false, preserveSearchDraft = false, preserveCreditDraft = false) {
   // Normalize the query for matching and URLs without rewriting a title being typed.
   if (!preserveSearchDraft) $('search').value = state.q;
+  if (!preserveCreditDraft) for (const [role] of creditFields) $(role + '-filter').value = state[role];
   $('early-access').checked = state.includeEarlyAccess; $('accessibility').checked = state.includeAccessibility;
   $('multiplayer').checked = state.includeMultiplayer;
   $('hardware').checked = state.includeHardware;
@@ -600,12 +703,14 @@ function syncControls(preserveDateDraft = false, preserveSearchDraft = false) {
   $('active-date-count').textContent = Number(!!state.releaseFrom) + Number(!!state.releaseTo);
   $('active-compatibility-count').textContent = Object.values(state.compatibility).filter(value => value !== 'ignore').length;
   $('active-language-count').textContent = state.hasLanguages.length + state.notLanguages.length;
+  $('active-developer-count').textContent = Number(!!state.developer.trim()) + Number(!!state.publisher.trim());
   for (const target of compatibilityTargets) {
     const select = $('compatibility-' + target.key); select.value = state.compatibility[target.key];
     select.closest('label').classList.toggle('selected', select.value !== 'ignore');
   }
   syncTagOptions();
   syncGameTags();
+  syncGameCredits();
   syncLanguageOptions();
   const chips = [], chipContainer = $('active-filters');
   const existingChips = new Map([...chipContainer.children].map(chip => [chip.dataset.filterKey, chip]));
@@ -624,6 +729,9 @@ function syncControls(preserveDateDraft = false, preserveSearchDraft = false) {
     addChip(JSON.stringify([kind, id]), kind, `${kind === 'has' ? '✓' : '−'} ${f.name} ×`,
       'Remove ' + (kind === 'has' ? 'required ' : 'excluded ') + f.name,
       () => setFilters({ [kind]: state[kind].filter(value => value !== id) }));
+  }
+  for (const [role, label] of creditFields) {
+    if (state[role]) addChip(role, 'developer-chip', `${label}: ${state[role]} ×`, `Remove ${role} filter`, () => setFilters({ [role]: '' }));
   }
   for (const kind of ['hasTags', 'notTags']) for (const name of state[kind]) {
     const required = kind === 'hasTags';
@@ -795,6 +903,21 @@ function filterLanguageOptions() {
   $('language-empty').hidden = visible > 0;
   $('language-empty').textContent = data.languages.length ? 'No languages match your search.' : 'Language filters are unavailable for this catalogue.';
 }
+function matchesCreditFilter(role, name) {
+  const term = normalizeCreditSearch(state[role]).trim();
+  return !!term && normalizeCreditSearch(name).includes(term);
+}
+function syncGameCredits() {
+  for (const button of $('tooltip').querySelectorAll('.tip-credit')) {
+    const { creditRole: role, creditName: name } = button.dataset;
+    const matches = matchesCreditFilter(role, name);
+    const action = matches ? `Clear ${role} filter: ${name}` : `Filter by ${role}: ${name}`;
+    button.classList.toggle('has', matches);
+    button.setAttribute('aria-pressed', String(matches));
+    button.setAttribute('aria-label', action);
+    button.title = action;
+  }
+}
 function syncGameTags() {
   for (const tag of $('tooltip').querySelectorAll('.tip-tag')) {
     const name = tag.dataset.tagName, kind = state.hasTags.includes(name) ? 'has' : state.notTags.includes(name) ? 'not' : '';
@@ -821,7 +944,7 @@ function filterTagOptions() {
 }
 function togglePicker(kind) {
   const open = $(kind + '-picker').hidden;
-  for (const name of ['feature', 'tag', 'date', 'compatibility', 'language']) {
+  for (const name of ['feature', 'tag', 'date', 'compatibility', 'language', 'developer']) {
     const expanded = name === kind && open; $(name + '-picker').hidden = !expanded;
     const searchControl = $(name + '-search-control'); if (searchControl) searchControl.hidden = !expanded;
     $(name + '-toggle').setAttribute('aria-expanded', String(expanded));
@@ -838,7 +961,7 @@ function updateMetadata() {
   const files = data.progressive?.files;
   const fileInfo = files ? ` Initial data file: ${formatCatalogFile(files.priority)}.${files.remainder ? ` Second data file: ${formatCatalogFile(files.remainder)}.` : ''}`
     : data.catalogCompression ? ` Data file: ${formatCatalogFile({ compression: data.catalogCompression, bytes: data.catalogBytes })}.` : '';
-  $('method-dates').textContent = `Updated ${date(data.importedAt)}. Individual games may have older data.${fileInfo}`;
+  $('method-dates').textContent = `Updated ${date(data.importedAt)}. Individual games may have older data.${fileInfo}${creditsFile ? ` Developer/publisher data file: ${formatCatalogFile(creditsFile)}.` : ''}`;
 }
 
 function getView() { return { filters: state, highlight: highlightedFeature, matching, displayed: view.length, featureColumns: visibleFeatures.length, maxScore: latestResult?.maxScore, page: latestResult?.page, pageCount: latestResult?.pageCount, games: view.map(({ id, name, score, count, rank, reviews, positivePercent, releaseISO, earlyAccess, tagIds }) => ({ id, name, score, count, rank, reviews, positivePercent, releaseISO, earlyAccess, tags: (tagIds ?? []).map(id => data.tags[id]) })) }; }
@@ -846,8 +969,11 @@ for (const preset of PRESETS) {
   const button = element('button', 'view-button'); button.append(icon(preset.id === 'feature-leaders' ? 'trophy' : 'warning'), element('span', '', preset.title)); button.type = 'button'; button.disabled = true; button.dataset.preset = preset.id; button.title = preset.description;
   button.addEventListener('click', () => setFilters(preset.query)); $('presets').append(button);
 }
-$('filters').addEventListener('submit', e => { e.preventDefault(); if ($('min-reviews').reportValidity()) applyReleaseDates({ q: $('search').value, minReviews: Number($('min-reviews').value) }); });
-$('search').addEventListener('input', e => { clearTimeout(inputTimer); state = { ...state, q: e.target.value }; latestRequest = ++requestId; inputTimer = setTimeout(() => setFilters({ q: state.q }), 250); });
+$('filters').addEventListener('submit', e => { e.preventDefault(); if ($('min-reviews').reportValidity()) applyReleaseDates({ ...textFilterPatch(), minReviews: Number($('min-reviews').value) }); });
+for (const [field, id] of textFields) $(id).addEventListener('input', e => {
+  clearTimeout(inputTimer); state = { ...state, [field]: e.target.value }; latestRequest = ++requestId;
+  inputTimer = setTimeout(() => setFilters(textFilterPatch()), 250);
+});
 $('early-access').addEventListener('change', e => setFilters({ includeEarlyAccess: e.target.checked }));
 $('accessibility').addEventListener('change', e => setFilters({ includeAccessibility: e.target.checked }));
 $('multiplayer').addEventListener('change', e => setFilters({ includeMultiplayer: e.target.checked }));
@@ -864,7 +990,7 @@ $('min-reviews').addEventListener('change', e => { if (e.target.value !== '' && 
 $('feature-search').addEventListener('input', e => { for (const label of $('feature-options').children) label.hidden = !label.dataset.name.includes(e.target.value.toLowerCase()); });
 $('tag-search').addEventListener('input', filterTagOptions);
 $('language-search').addEventListener('input', filterLanguageOptions);
-for (const kind of ['feature', 'tag', 'date', 'compatibility', 'language']) $(kind + '-toggle').addEventListener('click', () => togglePicker(kind));
+for (const kind of ['feature', 'tag', 'date', 'compatibility', 'language', 'developer']) $(kind + '-toggle').addEventListener('click', () => togglePicker(kind));
 for (const id of ['reset', 'empty-reset', 'error-reset']) $(id).addEventListener('click', () => setFilters(DEFAULT_QUERY));
 $('retry').addEventListener('click', startWorker);
 $('highlight-chip').addEventListener('click', () => setHighlight(null));
@@ -907,7 +1033,7 @@ for (const id of ['news-dialog', 'about-dialog', 'compatibility-dialog']) $(id).
   if (e.clientX < rect.left || e.clientX > rect.right || e.clientY < rect.top || e.clientY > rect.bottom) e.currentTarget.close();
 });
 $('share').addEventListener('click', async () => {
-  if (ready && $('search').value !== (new URLSearchParams(location.search).get('q') ?? '')) setFilters({ q: $('search').value }, false);
+  if (ready && textFields.some(([, id, parameter]) => $(id).value !== (new URLSearchParams(location.search).get(parameter) ?? ''))) setFilters(textFilterPatch(), false);
   try { await navigator.clipboard.writeText(location.href); $('share-status').textContent = 'Link copied'; $('share-label').textContent = 'Copied!'; setTimeout(() => { $('share-label').textContent = 'Copy link'; }, 1800); }
   catch { $('share-status').textContent = 'Copy the address from your browser to share this view.'; $('share-label').textContent = 'Copy address bar URL'; }
 });
@@ -942,6 +1068,7 @@ window.addEventListener('popstate', () => { if (ready) loadURL(); });
   layoutObserver.observe(document.querySelector('main'));
 
 
-$('catalog-retry').addEventListener('click', () => startBackgroundCatalog(true));
-window.steamFeatureAtlas = Object.freeze({ getView, setFilters, getLoadState: () => ({ fullReady, backgroundStarted, backgroundError, pendingFullQuery, fullReadyAt, partial: data.progressive?.partial === true }) });
+$('catalog-retry').addEventListener('click', () => pendingCreditsQuery && fullReady ? startCredits(true) : startBackgroundCatalog(true));
+$('credits-retry').addEventListener('click', () => startCredits(true));
+window.steamFeatureAtlas = Object.freeze({ getView, setFilters, getLoadState: () => ({ fullReady, backgroundStarted, backgroundError, pendingFullQuery, fullReadyAt, partial: data.progressive?.partial === true, creditsStatus, creditsError, pendingCreditsQuery }) });
 startWorker();

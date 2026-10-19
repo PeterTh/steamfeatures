@@ -11,6 +11,8 @@ import { decodeBinaryCatalog, BINARY_FORMAT } from '../src/catalog-binary.mjs';
 import { prepareCatalog, runQuery } from '../src/query.mjs';
 import { mergeCatalogPartitions } from '../src/progressive-catalog.mjs';
 import { features } from '../src/features.mjs';
+import { verifyGameCredits } from '../scripts/game-credits.mjs';
+import { gameCreditNames } from '../src/game-credits.mjs';
 
 test('fixture import emits equivalent full and split binaries, compressed variants, JSON and provenance', async () => {
   const output = await mkdtemp(join(tmpdir(), 'steam-atlas-import-'));
@@ -36,6 +38,10 @@ test('fixture import emits equivalent full and split binaries, compressed varian
     assert.deepEqual(gunzipSync(compressed), plain);
     assert.deepEqual(JSON.parse(plain), catalog);
     const descriptor = manifest.current.binary;
+    const credits = await verifyGameCredits(join(output, 'data'), manifest.gameCredits, catalog.games, descriptor.sha256);
+    const creditPosition = credits.appIds.indexOf(20);
+    assert.deepEqual(gameCreditNames(credits, credits.pairs[credits.pairIds[creditPosition]]), { developerNames: ['Alpha & Co', 'Second Studio'], publisherNames: ['Other Publisher'] });
+    assert.ok(catalog.games.every(game => !Object.hasOwn(game, 'developerNames') && !Object.hasOwn(game, 'publisherNames')));
     assert.equal(descriptor.format, BINARY_FORMAT);
     const binary = await readFile(join(output, 'data', descriptor.file));
     assert.equal(binary.length, descriptor.bytes);

@@ -1,8 +1,9 @@
-import { prepareCatalog, runQuery } from './query.mjs';
+import { prepareCatalog, runQuery, attachGameCredits } from './query.mjs';
 import { decodeBinaryCatalog } from './catalog-binary.mjs';
 import { validateBinaryDescriptor, BINARY_MAX_BYTES, JSON_MAX_BYTES, COMPRESSED_MAX_BYTES } from './catalog-descriptor.mjs';
 import { isCompatibilityDetail } from './compatibility-details.mjs';
 import { mergeCatalogPartitions, queryUsesPriority, validateProgressiveDescriptor, PRIORITY_MIN_REVIEWS } from './progressive-catalog.mjs';
+import { decodeGameCredits, validateCreditsDescriptor, CREDITS_MAX_BYTES, CREDITS_COMPRESSED_MAX_BYTES, gameCreditNames } from './game-credits.mjs';
 
 const MANIFEST_MAX_BYTES = 2 * 1024 * 1024;
 
@@ -99,8 +100,13 @@ function decompressor(DecompressionStreamImpl, format) {
   catch { return null; }
 }
 
-async function binaryCatalog(descriptor, context) {
-  validateBinaryDescriptor(descriptor);
+async function binaryCatalog(descriptor, context, creditsSnapshot) {
+  const credits = creditsSnapshot !== undefined;
+  if (credits) validateCreditsDescriptor(descriptor, creditsSnapshot);
+  else validateBinaryDescriptor(descriptor);
+  const maximum = credits ? CREDITS_MAX_BYTES : BINARY_MAX_BYTES;
+  const compressedMaximum = credits ? CREDITS_COMPRESSED_MAX_BYTES : COMPRESSED_MAX_BYTES;
+  const label = credits ? 'developer/publisher data' : 'binary catalog';
   const { manifestAddress, expectedOrigin, fetchImpl, cryptoImpl, DecompressionStreamImpl } = context;
   const errors = [];
   // Probe support before fetching. Unsupported Brotli must not cost an extra request.
@@ -111,19 +117,30 @@ async function binaryCatalog(descriptor, context) {
       const payload = key ? descriptor[key] : descriptor;
       const url = catalogURL(payload.file, manifestAddress, expectedOrigin);
       let bytes = await downloadBytes(url, payload, fetchImpl, cryptoImpl, manifestAddress,
-        key ? COMPRESSED_MAX_BYTES : BINARY_MAX_BYTES, key ? `${format} binary catalog` : 'binary catalog');
+        key ? compressedMaximum : maximum, key ? `${format} ${label}` : label);
       if (stream) {
-        bytes = await readBytes(new Blob([bytes]).stream().pipeThrough(stream), descriptor.bytes, BINARY_MAX_BYTES, 'binary catalog');
-        await digest(bytes, descriptor.sha256, cryptoImpl, 'binary catalog');
+        bytes = await readBytes(new Blob([bytes]).stream().pipeThrough(stream), descriptor.bytes, maximum, label);
+        await digest(bytes, descriptor.sha256, cryptoImpl, label);
       }
-      const catalog = decodeBinaryCatalog(bytes);
-      if (catalog?.version !== 1) throw new Error('This game catalog version is not supported.');
+      const catalog = credits ? decodeGameCredits(bytes, creditsSnapshot) : decodeBinaryCatalog(bytes);
+      if (!credits && catalog?.version !== 1) throw new Error('This game catalog version is not supported.');
       return { catalog, compression: format ?? 'uncompressed', bytes: payload.bytes };
     } catch (error) {
       errors.push(error instanceof Error ? error.message : String(error));
     }
   }
-  throw new Error(`The binary catalog and its fallbacks could not load. ${errors.join(' ')}`);
+  throw new Error(`The ${label} and its fallbacks could not load. ${errors.join(' ')}`);
+}
+
+export async function loadGameCredits(descriptor, manifestURL, snapshot, {
+  fetchImpl = globalThis.fetch, cryptoImpl = globalThis.crypto,
+  DecompressionStreamImpl = globalThis.DecompressionStream, origin = globalThis.location?.origin,
+} = {}) {
+  const manifestAddress = new URL(manifestURL, globalThis.location?.href);
+  const expectedOrigin = origin ?? manifestAddress.origin;
+  sameOriginURL(manifestAddress, manifestAddress, expectedOrigin);
+  const loaded = await binaryCatalog(descriptor, { manifestAddress, expectedOrigin, fetchImpl, cryptoImpl, DecompressionStreamImpl }, snapshot);
+  return { credits: loaded.catalog, compression: loaded.compression, bytes: loaded.bytes };
 }
 
 async function legacyCatalog(current, context) {
@@ -208,6 +225,8 @@ export async function loadCatalog(manifestURL, {
 
 let prepared = null, partial = false;
 let initialization = 0;
+let creditsLoading = null;
+let catalogSnapshot = null;
 
 // Guard permits importing loadCatalog in Node tests without emulating a worker.
 if (typeof self !== 'undefined' && typeof self.addEventListener === 'function') {
@@ -218,6 +237,7 @@ if (typeof self !== 'undefined' && typeof self.addEventListener === 'function') 
       if (message.type === 'init') {
         token = ++initialization;
         prepared = null;
+        creditsLoading = null;
         const loaded = message.catalog
           ? { catalog: message.catalog, manifest: null }
           : await loadCatalog(message.plan?.manifestURL ?? message.manifestURL, {
@@ -226,6 +246,7 @@ if (typeof self !== 'undefined' && typeof self.addEventListener === 'function') 
           });
         if (token !== initialization) return;
         const { catalog, manifest } = loaded;
+        catalogSnapshot = loaded.progressive?.plan.snapshot ?? manifest?.current?.binary?.sha256 ?? null;
         if (catalog?.version !== 1) throw new Error('This game catalog version is not supported.');
         prepared = prepareCatalog(catalog);
         partial = loaded.progressive?.partial === true;
@@ -253,11 +274,28 @@ if (typeof self !== 'undefined' && typeof self.addEventListener === 'function') 
           catalogBytes: loaded.bytes ?? null,
           progressive: loaded.progressive ?? null,
           gameImages: manifest?.gameImages ?? null,
+          gameCredits: manifest?.gameCredits ?? null,
+          snapshot: catalogSnapshot,
         });
+      } else if (message.type === 'credits') {
+        if (!prepared || partial) throw new Error('Developer/publisher data needs the complete catalog.');
+        if (message.snapshot !== catalogSnapshot) throw new Error('Developer/publisher catalog snapshot mismatch.');
+        creditsLoading ??= loadGameCredits(message.descriptor, message.manifestURL, message.snapshot);
+        let loaded;
+        try { loaded = await creditsLoading; } catch (error) { creditsLoading = null; throw error; }
+        if (token !== initialization) return;
+        attachGameCredits(prepared, loaded.credits);
+        self.postMessage({ type: 'credits-ready', compression: loaded.compression, bytes: loaded.bytes });
       } else if (message.type === 'query') {
         if (!prepared) throw new Error('The game catalog has not loaded yet.');
         if (partial && !queryUsesPriority(message.query, prepared)) throw new Error('This filter needs the complete catalog.');
-        self.postMessage({ type: 'result', requestId: message.requestId, result: runQuery(prepared, message.query) });
+        const result = runQuery(prepared, message.query);
+        if (message.pinnedGameId && prepared.gameCredits) {
+          const index = prepared.gameCredits;
+          const position = index.appIds.indexOf(message.pinnedGameId);
+          if (position >= 0) result.pinnedCredits = gameCreditNames(index, index.pairs[index.pairIds[position]]);
+        }
+        self.postMessage({ type: 'result', requestId: message.requestId, result });
       } else {
         throw new Error(`Unknown worker message: ${String(message.type)}.`);
       }

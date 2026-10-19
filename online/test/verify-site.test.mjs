@@ -11,6 +11,7 @@ import { retainPreviousCatalog, sha256 } from '../scripts/sources.mjs';
 import { writeBinaryCatalog, writeProgressiveCatalog } from '../scripts/catalog-package.mjs';
 import { JSON_MAX_BYTES } from '../src/catalog-descriptor.mjs';
 import { loadCatalog } from '../src/filter-worker.js';
+import { writeGameCredits } from '../scripts/game-credits.mjs';
 
 async function siteFixture(t, catalogInput) {
   const directory = await mkdtemp(join(tmpdir(), 'steam-atlas-verify-'));
@@ -45,9 +46,9 @@ async function siteFixture(t, catalogInput) {
     refreshState: await auxiliary('refresh', state), steamArchive: { ...await auxiliary('steam-raw', archive), apps: 1, successfulApps: 1 } };
   const saveManifest = () => put('data/manifest.json', JSON.stringify(manifest));
   await saveManifest();
-  const saveProvenance = () => put('provenance-lock.json', JSON.stringify({ catalog: manifest.current, refreshState: manifest.refreshState, steamArchive: manifest.steamArchive }));
+  const saveProvenance = () => put('provenance-lock.json', JSON.stringify({ catalog: manifest.current, gameCredits: manifest.gameCredits, refreshState: manifest.refreshState, steamArchive: manifest.steamArchive }));
   await saveProvenance();
-  for (const name of ['index.html', 'app.js', 'style.css', 'query.mjs', 'features.mjs', 'feature-presentation.mjs', 'compatibility-details.mjs', 'extra-features.mjs', 'languages.mjs', 'game-images.mjs', 'filter-worker.js', 'brand.svg', '.nojekyll',
+  for (const name of ['index.html', 'app.js', 'style.css', 'query.mjs', 'features.mjs', 'feature-presentation.mjs', 'compatibility-details.mjs', 'extra-features.mjs', 'languages.mjs', 'game-images.mjs', 'game-credits.mjs', 'filter-worker.js', 'brand.svg', '.nojekyll',
     'fonts/promptfont.woff2', 'fonts/PromptFont-LICENSE.txt', 'fonts/PromptFont-NOTICE.txt',
     'fonts/roboto-condensed-variable.woff', 'fonts/LICENSE.txt', 'fonts/NOTICE.txt', 'licenses/BlueBoxWare-MIT.txt', 'licenses/leinstay-GPL-3.0.txt', 'licenses/NOTICE.txt']) await put(name, 'Test fixture');
   const addBinary = async (binaryCatalog = catalog) => {
@@ -60,6 +61,28 @@ async function siteFixture(t, catalogInput) {
   };
   return { directory, put, auxiliary, manifest, catalog, state, archive, saveManifest, saveProvenance, addBinary };
 }
+
+test('deployment verification pins credit data to catalog IDs, snapshot and provenance', async t => {
+  const fixture = await siteFixture(t);
+  await fixture.addBinary();
+  const { manifest, directory } = fixture;
+  manifest.gameCredits = await writeGameCredits(fixture.catalog.games, new Map([[10, [['Valve'], ['Valve']]]]), join(directory, 'data'), manifest.current.binary.sha256);
+  await fixture.saveManifest();
+  await assert.rejects(verifySite(directory, { minimumGames: 1 }), /Provenance lock/);
+  await fixture.saveProvenance();
+  await verifySite(directory, { minimumGames: 1 });
+  const originalSnapshot = manifest.gameCredits.snapshot;
+  manifest.gameCredits.snapshot = 'b'.repeat(64);
+  await fixture.saveManifest();
+  await assert.rejects(verifySite(directory, { minimumGames: 1 }), /snapshot mismatch/);
+  manifest.gameCredits.snapshot = originalSnapshot;
+  await fixture.saveManifest();
+  await fixture.put('data/' + manifest.gameCredits.gzip.file, 'Corrupt credit archive');
+  await assert.rejects(verifySite(directory, { minimumGames: 1 }), /Compressed developer\/publisher/);
+  manifest.gameCredits = await writeGameCredits([{ id: 20 }], new Map(), join(directory, 'data'), manifest.current.binary.sha256);
+  await fixture.saveManifest(); await fixture.saveProvenance();
+  await assert.rejects(verifySite(directory, { minimumGames: 1 }), /app IDs/);
+});
 
 test('deployment verification accepts a complete package and enforces the production size floor', async t => {
   const { directory, manifest } = await siteFixture(t);

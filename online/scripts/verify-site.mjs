@@ -12,6 +12,7 @@ import { validateSteamArchiveSnapshot } from './steam-archive-snapshot.mjs';
 import { STEAM_DATA_FORMAT, readSteamDataArchive } from './steam-data.mjs';
 import { readPreviousManifest, readPreviousRefreshState, sha256, validateCatalogDescriptor } from './sources.mjs';
 import { verifyGameImages } from './game-images.mjs';
+import { verifyGameCredits } from './game-credits.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const FIRST_DEPLOY = 'For the first deployment, upload steam-feature-atlas-bootstrap.tar.gz to a GitHub release, then run this workflow with bootstrap_release set to that release tag. No Steam backfill was started.';
@@ -112,6 +113,7 @@ export async function verifySite(directory = resolve(ROOT, 'dist'), { minimumGam
     throw new Error('Catalog schema, coverage, or bootstrap status does not match its manifest.');
   }
   prepareCatalog(catalog);
+  if (manifest.gameCredits) await verifyGameCredits(data, manifest.gameCredits, catalog.games, manifest.current.binary?.sha256);
   if (manifest.gameImages) await verifyGameImages(data, manifest.gameImages);
   if (manifest.previous) await catalogBytes(data, manifest.previous);
   const state = validateRefreshState(await auxiliary(data, manifest.refreshState, 'refresh', 80 * 1024 * 1024, 300 * 1024 * 1024));
@@ -123,11 +125,11 @@ export async function verifySite(directory = resolve(ROOT, 'dist'), { minimumGam
     if (Object.keys(archive.apps).length !== manifest.steamArchive.apps) throw new Error('Steam raw archive app count does not match its manifest.');
   }
   const provenance = JSON.parse(await readFile(resolve(site, 'provenance-lock.json'), 'utf8'));
-  if (!isDeepStrictEqual(provenance.gameImages, manifest.gameImages) || provenance.catalog?.sha256 !== manifest.current.sha256 || !isDeepStrictEqual(provenance.catalog?.binary, manifest.current.binary) ||
+  if (!isDeepStrictEqual(provenance.gameCredits, manifest.gameCredits) || !isDeepStrictEqual(provenance.gameImages, manifest.gameImages) || provenance.catalog?.sha256 !== manifest.current.sha256 || !isDeepStrictEqual(provenance.catalog?.binary, manifest.current.binary) ||
       !isDeepStrictEqual(provenance.catalog?.progressive, manifest.current.progressive) || provenance.refreshState?.sha256 !== manifest.refreshState.sha256 || provenance.steamArchive?.sha256 !== manifest.steamArchive.sha256) {
     throw new Error('Provenance lock does not match the manifest.');
   }
-  for (const name of ['index.html', 'app.js', 'style.css', 'query.mjs', 'features.mjs', 'feature-presentation.mjs', 'compatibility-details.mjs', 'extra-features.mjs', 'languages.mjs', 'game-images.mjs', 'filter-worker.js', 'brand.svg', '.nojekyll',
+  for (const name of ['index.html', 'app.js', 'style.css', 'query.mjs', 'features.mjs', 'feature-presentation.mjs', 'compatibility-details.mjs', 'extra-features.mjs', 'languages.mjs', 'game-images.mjs', 'game-credits.mjs', 'filter-worker.js', 'brand.svg', '.nojekyll',
     'fonts/promptfont.woff2', 'fonts/PromptFont-LICENSE.txt', 'fonts/PromptFont-NOTICE.txt',
     'fonts/roboto-condensed-variable.woff', 'fonts/LICENSE.txt', 'fonts/NOTICE.txt', 'licenses/BlueBoxWare-MIT.txt', 'licenses/leinstay-GPL-3.0.txt', 'licenses/NOTICE.txt']) {
     await readFile(resolve(site, name));

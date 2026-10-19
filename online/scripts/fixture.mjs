@@ -14,6 +14,8 @@ export async function createFixture(directory) {
     50: { steam_appid: 50, type: 'game', name: 'Fixture: unknown data', categories: [], genres: [] },
     60: { steam_appid: 60, type: 'dlc', name: 'Fixture: excluded DLC', categories: [2], genres: [1] }
   };
+  apps[10].developers = ['Valve']; apps[10].publishers = ['Valve'];
+  apps[20].developers = ['Alpha & Co', 'Second Studio']; apps[20].publishers = ['Other Publisher'];
   const reviews = [
     { steam_appid: 10, steam_reviews_count: 20, steam_reviews_percent: 80, tags: ['Co-op', ' Action ', 'Action'] },
     { steam_appid: 20, steam_reviews_count: 1001, steam_reviews_percent: 90, tags: ['Puzzle', 'Action'] },
