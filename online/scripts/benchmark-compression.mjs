@@ -5,6 +5,9 @@ import { copyFile, mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { availableParallelism, cpus, totalmem } from 'node:os';
 import { basename, dirname, resolve } from 'node:path';
 import { performance } from 'node:perf_hooks';
+import { execFileSync, spawn } from 'node:child_process';
+import { once } from 'node:events';
+import { createInterface } from 'node:readline';
 import { Readable, Transform, Writable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -23,6 +26,44 @@ const save = async (name, value) => writeFile(resolve(directory, name), JSON.str
 const loadModule = (source, name) => import(pathToFileURL(resolve(source, 'scripts', name)).href);
 await mkdir(resolve(directory, 'inputs'), { recursive: true });
 await mkdir(resolve(directory, 'results'), { recursive: true });
+
+// Include the CLI encoder in Linux archive CPU/RSS measurements. Sampling is
+// restricted to the measured phase; round-trip verification is timed separately.
+if (process.platform === 'linux' && mode?.endsWith('-archive') && !process.env.COMPRESSION_PROFILE_CHILD) {
+  const child = spawn(process.execPath, [...process.execArgv, fileURLToPath(import.meta.url), ...args],
+    { detached: true, stdio: ['ignore', 'pipe', 'inherit'], env: { ...process.env, COMPRESSION_PROFILE_CHILD: '1' } });
+  let active = false, peakRSSKiB = 0;
+  const initialCPU = new Map(), maximumCPU = new Map();
+  const sample = initial => {
+    const listing = execFileSync('ps', ['-eo', 'pid=,pgid=,rss=,cputimes='], { encoding: 'utf8' });
+    let rss = 0;
+    for (const line of listing.trim().split('\n')) {
+      const [pid, group, memory, cpu] = line.trim().split(/\s+/).map(Number);
+      if (group !== child.pid) continue;
+      rss += memory;
+      if (initial) initialCPU.set(pid, cpu);
+      maximumCPU.set(pid, Math.max(maximumCPU.get(pid) || 0, cpu));
+    }
+    peakRSSKiB = Math.max(peakRSSKiB, rss);
+  };
+  const timer = setInterval(() => { if (active) sample(false); }, 1000);
+  createInterface({ input: child.stdout }).on('line', line => {
+    console.log(line);
+    let entry; try { entry = JSON.parse(line); } catch { return; }
+    if (entry.mode !== mode) return;
+    if (entry.startedAt) { sample(true); active = true; }
+    if (entry.compressionFinished) { sample(false); active = false; }
+  });
+  const [code] = await once(child, 'close'); clearInterval(timer);
+  if (code !== 0) process.exit(code || 1);
+  const measured = await json('results/' + mode + '.json');
+  measured.treePeakRSSMiB = peakRSSKiB / 1024;
+  measured.treeCpuSeconds = [...maximumCPU].reduce((sum, [pid, cpu]) => sum + cpu - (initialCPU.get(pid) || 0), 0);
+  measured.treeSampleIntervalMs = 1000;
+  await save('results/' + mode + '.json', measured);
+  console.log(JSON.stringify({ mode, treePeakRSSMiB: measured.treePeakRSSMiB, treeCpuSeconds: measured.treeCpuSeconds, sampled: true }));
+  process.exit(0);
+}
 
 async function inspectRaw(filename, descriptor) {
   let compressedBytes = 0, expandedBytes = 0, header, headerBytes = 0;
@@ -90,13 +131,24 @@ if (mode === 'prepare') {
     creditsFile, rawFile, raw, environment: { node: process.version, platform: process.platform, arch: process.arch,
       cpus: availableParallelism(), cpuModel: cpus()[0]?.model, memoryBytes: totalmem(), threadpoolSize: process.env.UV_THREADPOOL_SIZE || 'default (4)',
       candidateCommit: process.env.GITHUB_SHA || null } };
+  const reuse = option('--reuse-results');
+  if (reuse) {
+    const prior = JSON.parse(await readFile(resolve(reuse, 'input-info.json'), 'utf8'));
+    assert.equal(prior.snapshot, info.snapshot, 'Reused measurements require the same frozen snapshot');
+    info.baselineEnvironment = prior.environment;
+    for (const name of ['baseline-browser', 'parallel-browser', 'baseline-archive']) {
+      const measured = JSON.parse(await readFile(resolve(reuse, 'results', name + '.json'), 'utf8'));
+      assert.equal(measured.snapshot, info.snapshot); assert.equal(measured.verified, true);
+      await save('results/' + name + '.json', measured);
+    }
+  }
   await save('manifest.json', manifest); await save('input-info.json', info);
   console.log(JSON.stringify({ prepared: info.snapshot, games: info.games, rawBytes: manifest.steamArchive.bytes, environment: info.environment }));
 } else if (['baseline-browser', 'parallel-browser', 'baseline-archive', 'parallel-archive'].includes(mode)) {
   const [info, manifest] = await Promise.all([json('input-info.json'), json('manifest.json')]);
   const source = mode.startsWith('baseline-') ? info.baseline : root;
   const output = resolve(directory, mode); await mkdir(output, { recursive: true });
-  let operation, verify, workers = 0, processedApps = 0;
+  let operation, verify, workers = 0, backend = 'node-zlib', zstdVersion = null, processedApps = 0;
   if (mode.endsWith('browser')) {
     const catalog = JSON.parse(await readFile(resolve(directory, 'inputs/catalog.json'), 'utf8'));
     const decoded = decodeGameCredits(await readFile(info.creditsFile), info.snapshot);
@@ -127,6 +179,11 @@ if (mode === 'prepare') {
     };
   } else {
     const archive = await loadModule(source, 'steam-data.mjs'); workers = archive.STEAM_ARCHIVE_COMPRESSION_WORKERS ?? 0;
+    backend = archive.STEAM_ARCHIVE_COMPRESSION_BACKEND || 'node-zlib';
+    zstdVersion = archive.STEAM_ARCHIVE_ZSTD_VERSION || null;
+    if (mode.startsWith('parallel-') && process.platform === 'linux') {
+      assert.equal(backend, 'zstd-cli', 'Runner must exercise the CLI parallel encoder'); assert.equal(workers, 3);
+    }
     async function* records() {
       for await (const record of archive.readSteamDataArchive(info.rawFile, manifest.steamArchive)) {
         if (record.format) { assert.deepEqual(record, info.raw.header); continue; }
@@ -143,14 +200,15 @@ if (mode === 'prepare') {
     };
   }
   const cpu = process.cpuUsage(), started = performance.now();
-  console.log(JSON.stringify({ mode, startedAt: new Date().toISOString(), workers }));
+  console.log(JSON.stringify({ mode, startedAt: new Date().toISOString(), workers, backend }));
   const heartbeat = setInterval(() => console.log(JSON.stringify({ mode, seconds: (performance.now() - started) / 1000, processedApps })), 30000);
   let result;
   try { result = await operation(); } finally { clearInterval(heartbeat); }
   const seconds = (performance.now() - started) / 1000, used = process.cpuUsage(cpu), peakRSSKiB = process.resourceUsage().maxRSS;
+  console.log(JSON.stringify({ mode, compressionFinished: true }));
   const verificationStarted = performance.now(); await verify(result);
   const measured = { mode, snapshot: info.snapshot, seconds, cpuSeconds: (used.user + used.system) / 1e6,
-    peakRSSMiB: peakRSSKiB / 1024, workers, verifySeconds: (performance.now() - verificationStarted) / 1000, verified: true, output: result };
+    peakRSSMiB: peakRSSKiB / 1024, workers, backend, zstdVersion, verifySeconds: (performance.now() - verificationStarted) / 1000, verified: true, output: result };
   await save('results/' + mode + '.json', measured);
   console.log(JSON.stringify({ ...measured, output: undefined }));
 } else if (mode === 'summarize') {
@@ -160,12 +218,13 @@ if (mode === 'prepare') {
   assert.deepEqual(oldBrowser.output, newBrowser.output, 'All browser bytes and descriptors must remain identical');
   const comparison = (before, after) => ({ baselineSeconds: before.seconds, parallelSeconds: after.seconds,
     speedup: before.seconds / after.seconds, savedSeconds: before.seconds - after.seconds,
-    baselinePeakRSSMiB: before.peakRSSMiB, parallelPeakRSSMiB: after.peakRSSMiB });
-  const summary = { snapshot: info.snapshot, games: info.games, environment: info.environment,
+    baselinePeakRSSMiB: before.treePeakRSSMiB ?? before.peakRSSMiB, parallelPeakRSSMiB: after.treePeakRSSMiB ?? after.peakRSSMiB,
+    baselineCPUSeconds: before.treeCpuSeconds ?? before.cpuSeconds, parallelCPUSeconds: after.treeCpuSeconds ?? after.cpuSeconds });
+  const summary = { snapshot: info.snapshot, games: info.games, environment: info.environment, baselineEnvironment: info.baselineEnvironment,
     browser: { ...comparison(oldBrowser, newBrowser), identicalBytes: true },
     archive: { ...comparison(oldArchive, newArchive), baselineBytes: oldArchive.output.bytes, parallelBytes: newArchive.output.bytes,
       sizeChangePercent: (newArchive.output.bytes / oldArchive.output.bytes - 1) * 100, identicalExpandedBytes: true },
     combined: { baselineSeconds: oldBrowser.seconds + oldArchive.seconds, parallelSeconds: newBrowser.seconds + newArchive.seconds },
-    scope: 'Packaging comparison on one frozen completed snapshot. Raw input is decoded and reserialized in both cases. Fetching, source projection, deployment and post-compression verification are excluded from measured times.' };
+    scope: 'Packaging comparison on one frozen completed snapshot. Raw input is decoded and reserialized in both cases. Fetching, source projection, deployment and post-compression verification are excluded. Linux process-tree CPU/RSS are sampled at one second. Reused baselines ran on a prior runner; both environments are recorded.' };
   await save('results/summary.json', summary); console.log(JSON.stringify({ summary }));
 } else throw new Error('Use prepare --baseline <online-directory>, baseline-browser, parallel-browser, baseline-archive, parallel-archive, or summarize.');

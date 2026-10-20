@@ -7,10 +7,15 @@ import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { createZstdCompress, createZstdDecompress, constants } from 'node:zlib';
 import { availableParallelism } from 'node:os';
+import { spawn, spawnSync } from 'node:child_process';
 
 export const STEAM_DATA_FORMAT = 'steam-feature-atlas-raw-v2';
 export const STEAM_DATA_LIMITS = Object.freeze({ compressed: 1024 ** 3, expanded: 8 * 1024 ** 3, line: 32 * 1024 ** 2 });
-export const STEAM_ARCHIVE_COMPRESSION_WORKERS = Math.min(3, Math.max(0, availableParallelism() - 1));
+const archiveWorkers = Math.min(3, Math.max(0, availableParallelism() - 1));
+const zstdProbe = archiveWorkers ? spawnSync('zstd', ['--version'], { encoding: 'utf8', windowsHide: true }) : null;
+export const STEAM_ARCHIVE_COMPRESSION_BACKEND = zstdProbe?.status === 0 ? 'zstd-cli' : 'node-zlib';
+export const STEAM_ARCHIVE_COMPRESSION_WORKERS = zstdProbe?.status === 0 ? archiveWorkers : 0;
+export const STEAM_ARCHIVE_ZSTD_VERSION = zstdProbe?.status === 0 ? zstdProbe.stdout.trim() : null;
 const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const validId = id => Number.isSafeInteger(id) && id > 0 && id <= 0xffffffff;
 const encode = value => value === undefined ? null : JSON.stringify(value);
@@ -154,6 +159,31 @@ async function* jsonLines(stream) {
   if (size) yield Buffer.concat(parts, size).toString('utf8');
 }
 
+async function compressArchive(source, expandedMeter, compressedMeter, output) {
+  if (!STEAM_ARCHIVE_COMPRESSION_WORKERS) {
+    return pipeline(source, expandedMeter,
+      createZstdCompress({ params: { [constants.ZSTD_c_compressionLevel]: 19, [constants.ZSTD_c_checksumFlag]: 1 } }),
+      compressedMeter, output);
+  }
+  // Node's streaming Zstd binding can signal EOF prematurely with nbWorkers.
+  // The CLI provides bounded streaming and native parallelism without buffering
+  // the full archive. Hosts without it retain the existing Node encoder.
+  const child = spawn('zstd', ['-19', `-T${STEAM_ARCHIVE_COMPRESSION_WORKERS}`, '--check', '-c', '-q'],
+    { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
+  let stderr = '';
+  child.stderr.on('data', chunk => { if (stderr.length < 65536) stderr += chunk.toString(); });
+  const exited = new Promise((resolveExit, reject) => {
+    child.once('error', reject);
+    child.once('close', (code, signal) => code === 0 ? resolveExit()
+      : reject(new Error(`zstd exited with ${signal || code}: ${stderr.trim()}`)));
+  });
+  const work = [pipeline(source, expandedMeter, child.stdin), pipeline(child.stdout, compressedMeter, output), exited];
+  for (const operation of work) operation.catch(() => child.kill());
+  const results = await Promise.allSettled(work);
+  const failure = results.find(result => result.status === 'rejected');
+  if (failure) throw failure.reason;
+}
+
 /** One JSONL stream, one latest usable payload per API/app, no trained dictionary. */
 export async function writeSteamDataArchive({ records, tagDictionary = [], outputDirectory, generatedAt = new Date().toISOString() }) {
   await mkdir(outputDirectory, { recursive: true });
@@ -172,9 +202,7 @@ export async function writeSteamDataArchive({ records, tagDictionary = [], outpu
     }
   }
   try {
-    await pipeline(Readable.from(lines()), meter({ maximum: STEAM_DATA_LIMITS.expanded, onSize: size => { uncompressedBytes = size; } }),
-      createZstdCompress({ params: { [constants.ZSTD_c_compressionLevel]: 19, [constants.ZSTD_c_checksumFlag]: 1,
-        [constants.ZSTD_c_nbWorkers]: STEAM_ARCHIVE_COMPRESSION_WORKERS } }),
+    await compressArchive(Readable.from(lines()), meter({ maximum: STEAM_DATA_LIMITS.expanded, onSize: size => { uncompressedBytes = size; } }),
       meter({ maximum: STEAM_DATA_LIMITS.compressed, hash: digest, onSize: size => { bytes = size; } }), createWriteStream(temporary, { flags: 'wx' }));
     const sha256 = digest.digest('hex');
     const descriptor = { format: STEAM_DATA_FORMAT, file: `steam-raw.${sha256.slice(0, 16)}.jsonl.zst`, sha256, bytes, uncompressedBytes, apps, successfulApps, picsApps };

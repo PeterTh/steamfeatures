@@ -4,7 +4,7 @@ import { mkdtemp, readFile, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { zstdCompressSync } from 'node:zlib';
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { SteamDataStore, writeSteamDataArchive, readSteamDataArchive, restoreSteamData, STEAM_DATA_FORMAT } from '../scripts/steam-data.mjs';
 import { collectSteamData } from '../scripts/collect-steam-data.mjs';
 import { STEAM_DATA_REQUEST } from '../scripts/steam-client.mjs';
@@ -71,6 +71,21 @@ test('collector commits batches, resumes without repeated lookups, and preserves
   calls.length = 0; pics.length = 0;
   await collectSteamData({ store, storeClient, picsClient, now: () => NOW });
   assert.equal(calls.length + pics.length, 0);
+});
+
+test('large raw records survive compression backpressure without a premature end of stream', async t => {
+  const { directory } = await setup(t);
+  const payload = randomBytes(8 * 1024 ** 2).toString('base64');
+  const records = [10, 20, 30, 40].map(id => ({ id, fallback: { name: `Game ${id}` },
+    store: { ...item(id), future_payload: payload + id } }));
+  const descriptor = await writeSteamDataArchive({ records, outputDirectory: directory, generatedAt: NOW });
+  assert.ok(descriptor.uncompressedBytes > 32 * 1024 ** 2);
+  let seen = 0;
+  for await (const row of readSteamDataArchive(join(directory, descriptor.file), descriptor)) {
+    if (row.format) continue;
+    assert.deepEqual(row, records[seen++]);
+  }
+  assert.equal(seen, records.length);
 });
 
 test('streaming archive round trips source payloads and future fields without operational history', async t => {

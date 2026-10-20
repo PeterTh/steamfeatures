@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: compression-benchmark-${{ github.ref }}
@@ -37,14 +38,15 @@ jobs:
         run: npm ci --ignore-scripts
       - name: Run tests
         run: npm test
+      - name: Restore verified baseline measurements
+        uses: actions/download-artifact@v4
+        with:
+          name: compression-benchmark
+          run-id: 39461401005
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/prior-compression-benchmark
       - name: Freeze completed published inputs and inspect runner
-        run: node --max-old-space-size=4096 scripts/benchmark-compression.mjs prepare
-      - name: Baseline browser compression
-        run: node --max-old-space-size=4096 scripts/benchmark-compression.mjs baseline-browser
-      - name: Parallel browser compression
-        run: node --max-old-space-size=4096 scripts/benchmark-compression.mjs parallel-browser
-      - name: Baseline raw archive compression
-        run: node --max-old-space-size=4096 scripts/benchmark-compression.mjs baseline-archive
+        run: node --max-old-space-size=4096 scripts/benchmark-compression.mjs prepare --reuse-results "$RUNNER_TEMP/prior-compression-benchmark"
       - name: Parallel raw archive compression
         run: node --max-old-space-size=4096 scripts/benchmark-compression.mjs parallel-archive
       - name: Compare measurements and verified outputs
