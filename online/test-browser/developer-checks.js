@@ -23,7 +23,7 @@
   await page.waitForFunction(() => window.steamFeatureAtlas.getLoadState().creditsStatus === 'loading');
   check('Table is usable while the deferred file is held', initial.matching > 0 && await page.locator('#catalog-progress').isHidden());
   check('Metadata starts after full catalog preparation', await page.evaluate(() => window.steamFeatureAtlas.getLoadState().fullReady));
-  check('Filter row has six short labels', JSON.stringify(await page.locator('.picker-toggle').allTextContents().then(labels => labels.map(label => label.trim().replace(/\s+\d+$/, '')))) === JSON.stringify(['Features', 'Tags', 'Release date', 'Compatibility', 'Languages', 'Developers']));
+  check('Filter row has seven short labels', JSON.stringify(await page.locator('.picker-toggle').allTextContents().then(labels => labels.map(label => label.trim().replace(/\s+\d+$/, '')))) === JSON.stringify(['Features', 'Tags', 'Reviews', 'Release date', 'Compatibility', 'Languages', 'Developers']));
   await page.locator('#developer-toggle').click();
   check('Developers panel explains its two roles and waits locally', await page.locator('#developer-picker').isVisible() && await page.locator('#developer-filter').isDisabled() && await page.locator('#publisher-filter').isDisabled() && await page.locator('#credits-status').isVisible());
   await page.evaluate(() => window.steamFeatureAtlas.setFilters({ q: 'Portal 2' })); await settled();

@@ -33,7 +33,7 @@ async (page, options = {}) => {
     await page.waitForFunction(id => window.steamFeatureAtlas.getView().games.some(game => game.id === id), game.id);
   };
   let v = await view();
-  check('Default filters and 30-column matrix', v.featureColumns === 30 && v.maxScore === 28 && v.filters.minReviews === 20 && !v.filters.includeEarlyAccess && !v.filters.includeAccessibility && !v.filters.includeMultiplayer && !v.filters.includeHardware && v.displayed === 50);
+  check('Default filters and 30-column matrix', v.featureColumns === 30 && v.maxScore === 28 && v.filters.minReviews === 20 && v.filters.release === 'released' && !v.filters.includeAccessibility && !v.filters.includeMultiplayer && !v.filters.includeHardware && v.displayed === 50);
   check('Weighted score is the default sort', v.filters.sort === 'score-desc' && v.games.every((g,i) => !i || g.score <= v.games[i-1].score));
   check('Sort field and direction have separate compact controls', await page.locator('#sort').inputValue() === 'score' && await page.locator('#sort-desc').getAttribute('aria-pressed') === 'true' && await page.locator('#sort option').allTextContents().then(labels => labels.join(',') === 'Feature Score,Feature Count,Review Score,Review Count,Title,Release date'));
   check('Score is visible and raw count uses no table column', await page.locator('#matrix-head .fixed-score').count() === 1 && await page.locator('#matrix .fixed-count').count() === 0);
@@ -80,7 +80,7 @@ async (page, options = {}) => {
   await page.getByRole('button', {name:'Require Steam Achievements',exact:true}).click(); await settled();
   await page.getByRole('button', {name:'Exclude Steam Cloud',exact:true}).click(); await settled();
   v = await view(); check('Require and exclude combine, retained in URL', v.filters.has.includes(22) && v.filters.not.includes(23) && page.url().includes('steam-achievements') && page.url().includes('steam-cloud'));
-  check('Active filter chips are removable buttons', await page.locator('#active-filters button').count() === 2);
+  check('Active feature and review filter chips are removable buttons', await page.locator('#active-filters button').count() === 3);
   check('Plus and minus buttons expose active states', await page.getByRole('button', {name:'Require Steam Achievements',exact:true}).getAttribute('aria-pressed') === 'true' && await page.getByRole('button', {name:'Exclude Steam Cloud',exact:true}).getAttribute('aria-pressed') === 'true');
   await page.locator('#active-filters button.not').click(); await settled(); check('Remove only selected constraint', (await view()).filters.has.length === 1 && (await view()).filters.not.length === 0);
   await page.getByRole('button',{name:'Require Multi-player',exact:true}).click(); await settled(); v = await view();
@@ -116,8 +116,8 @@ async (page, options = {}) => {
   check('Tooltip minus switches requirement to exclusion with keyboard', v.filters.not.includes(23) && !v.filters.has.includes(23));
   check('Game rows link to Steam, SteamDB and Steamograph', /store.steampowered.com\/app\//.test(await page.locator('#matrix-body [data-service="steam"]').first().getAttribute('href')) && /steamdb.info\/app\//.test(await page.locator('#matrix-body [data-service="steamdb"]').first().getAttribute('href')) && /steamograph.com\/games\//.test(await page.locator('#matrix-body [data-service="steamograph"]').first().getAttribute('href')));
   await page.locator('#reset').click(); await settled();
-  await page.evaluate(() => { const input = document.querySelector('#search'); input.value = 'Portal'; input.dispatchEvent(new Event('input', {bubbles:true})); document.querySelector('#early-access').click(); });
-  await settled(); v = await view(); check('Fast filter change preserves pending title input', v.filters.q === 'Portal' && v.filters.includeEarlyAccess && v.games.every(g => g.name.toLowerCase().includes('portal')));
+  await page.evaluate(() => { const input = document.querySelector('#search'); input.value = 'Portal'; input.dispatchEvent(new Event('input', {bubbles:true})); const release = document.querySelector('#release'); release.value = 'released-ea'; release.dispatchEvent(new Event('change', {bubbles:true})); });
+  await settled(); v = await view(); check('Fast filter change preserves pending title input', v.filters.q === 'Portal' && v.filters.release === 'released-ea' && v.games.every(g => g.name.toLowerCase().includes('portal')));
   await page.goto(base + '?has=nonexistent-feature'); await page.waitForSelector('#error:not([hidden])');
   check('Invalid URL fails explicitly, never broadens silently', /Unknown/.test(await page.locator('#error-message').innerText()) && await page.locator('#results').isHidden());
   await page.locator('#error-reset').click(); await settled(); check('Invalid URL can be reset', (await view()).displayed === 50);
@@ -127,11 +127,12 @@ async (page, options = {}) => {
   check('Unknown features render question marks when unknown reviews and Early Access are included', unknown.count === null && unknown.score === null && await page.locator(`tr[data-game-id="${dataset.unknown.id}"] td[data-supported="unknown"]`).count() === (await view()).featureColumns && /Unknown/.test(await page.locator('.legend').innerText()));
   check('Current catalog retains a confirmed denied game with unknown reviews', Boolean(dataset.denied));
   await openExample(dataset.denied);
-  check('Threshold zero keeps a denied game without inventing a review count', (await view()).filters.minReviews === 0 && (await view()).filters.includeEarlyAccess && (await view()).games.find(game => game.id === dataset.denied.id).reviews === null);
+  check('Threshold zero keeps a denied game without inventing a review count', (await view()).filters.minReviews === 0 && (await view()).filters.release === 'released-ea' && (await view()).games.find(game => game.id === dataset.denied.id).reviews === null);
   await page.locator(`tr[data-game-id="${dataset.denied.id}"] .game-name`).click();
   check('Denied game details explain preserved older data', /Steam metadata unavailable; showing older data where available\./.test(await page.locator('#tooltip').innerText()));
   check('Denied game details show its review total as Unknown', await page.locator('#tooltip').evaluate(tip => [...tip.querySelectorAll('dt')].some(label => /^Reviews$/i.test(label.textContent) && label.nextElementSibling?.textContent === 'Unknown')));
   await page.keyboard.press('Escape');
+  await page.locator('#review-toggle').click();
   await page.locator('#min-reviews').fill('20'); await page.locator('#min-reviews').dispatchEvent('change'); await settled();
   check('A positive review threshold excludes a denied game with unknown reviews', (await view()).filters.minReviews === 20 && !(await view()).games.some(game => game.id === dataset.denied.id) && await page.locator(`tr[data-game-id="${dataset.denied.id}"]`).count() === 0);
   check('Ys IX is present in the current catalog', Boolean(dataset.ys));
@@ -163,7 +164,7 @@ async (page, options = {}) => {
   await page.getByRole('button',{name:'Exclude tag Horror',exact:true}).click(); await settled(); v = await view();
   check('Feature and positive/negative tag constraints all apply together', v.filters.has.includes(22) && v.filters.hasTags.includes('Puzzle') && v.filters.notTags.includes('Horror') && v.displayed > 0 && v.games.every(game => game.tags.includes('Puzzle') && !game.tags.includes('Horror')) && await page.locator('#matrix-body td[data-feature="22"][data-supported="true"]').count() === v.displayed);
   check('Tag filters are encoded by name in the URL', await page.evaluate(() => new URLSearchParams(location.search).getAll('tag').includes('Puzzle') && new URLSearchParams(location.search).getAll('notTag').includes('Horror')));
-  await page.locator('#tag-toggle').click(); check('Closing both panels keeps active chips and compact controls', await page.locator('#tag-picker').isHidden() && await page.locator('#active-filters button').count() === 3 && Math.abs((await page.locator('.filter-pickers').boundingBox()).height - 35) < 20);
+  await page.locator('#tag-toggle').click(); check('Closing both panels keeps active chips and compact controls', await page.locator('#tag-picker').isHidden() && await page.locator('#active-filters button').count() === 4 && Math.abs((await page.locator('.filter-pickers').boundingBox()).height - 35) < 20);
   await page.reload(); await settled();
   check('Tag URLs reload with both panels closed and all constraints active', (await view()).filters.hasTags.includes('Puzzle') && (await view()).filters.notTags.includes('Horror') && await page.locator('#feature-picker').isHidden() && await page.locator('#tag-picker').isHidden());
   await page.locator('#tag-toggle').click(); check('Lazy tag buttons restore selected state', await page.getByRole('button',{name:'Require tag Puzzle',exact:true}).getAttribute('aria-pressed') === 'true' && await page.getByRole('button',{name:'Exclude tag Horror',exact:true}).getAttribute('aria-pressed') === 'true');

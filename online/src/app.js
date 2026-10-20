@@ -21,6 +21,8 @@ let creditsRefreshRequest = 0;
 const creditFields = [['developer', 'Developer'], ['publisher', 'Publisher']];
 const textFields = [['q', 'search', 'q'], ['developer', 'developer-filter', 'dev'], ['publisher', 'publisher-filter', 'pub']];
 const textFilterPatch = () => Object.fromEntries(textFields.map(([field, id]) => [field, $(id).value]));
+const reviewFields = [['minReviews', 'min-reviews', 'Minimum review count'], ['maxReviews', 'max-reviews', 'Maximum review count'],
+  ['minRating', 'min-rating', 'Minimum review rating'], ['maxRating', 'max-rating', 'Maximum review rating']];
 let tipAnchor = null, tipPinned = false, currentColumn = null, suppressFocusTip = false, columnCells = new Map();
 let tipHideTimer, focusFeatureAfterRender = null;
 let preserveGameTip = false;
@@ -28,6 +30,7 @@ let highlightedFeature = null, revealHighlightPending = false;
 let requestedSearch = null, activeQueryRequest = 0;
 let layoutFrame;
 let dateDraftDirty = false;
+let reviewDraftDirty = false;
 let compatibilityAnchor = null;
 let gameCard = null, tipSearch = null, loadGameImage = createGameImageLoader(null);
 
@@ -536,7 +539,7 @@ function receiveResult(message) {
   state = latestResult.query;
   requestedSearch = serializeQuery(state, data.features, data.tags, data.languages);
   writeURL(state);
-  syncControls(true, true, true); render();
+  syncControls(true, true, true, true); render();
   $('error').hidden = true; $('loading').hidden = true; $('results').hidden = false; $('results').removeAttribute('aria-busy');
   updateMatrixLayout();
   if (data.progressive?.partial && !backgroundStarted) requestAnimationFrame(() => requestAnimationFrame(() => startBackgroundCatalog()));
@@ -675,18 +678,23 @@ function setFilters(patch, resetPage = true, keepGameTip = false) {
     writeURL(next, 'push');
     state = next;
     syncControls(!('releaseFrom' in patch) && !('releaseTo' in patch), !('q' in patch) || patch.q === $('search').value,
-      creditFields.every(([role]) => !(role in patch) || patch[role] === $(role + '-filter').value));
+      creditFields.every(([role]) => !(role in patch) || patch[role] === $(role + '-filter').value),
+      reviewFields.every(([field]) => !(field in patch)));
     query(keepGameTip);
   } catch (error) { showError(error.message); }
 }
-function syncControls(preserveDateDraft = false, preserveSearchDraft = false, preserveCreditDraft = false) {
+function syncControls(preserveDateDraft = false, preserveSearchDraft = false, preserveCreditDraft = false, preserveReviewDraft = false) {
   // Normalize the query for matching and URLs without rewriting a title being typed.
   if (!preserveSearchDraft) $('search').value = state.q;
   if (!preserveCreditDraft) for (const [role] of creditFields) $(role + '-filter').value = state[role];
-  $('early-access').checked = state.includeEarlyAccess; $('accessibility').checked = state.includeAccessibility;
+  $('accessibility').checked = state.includeAccessibility;
   $('multiplayer').checked = state.includeMultiplayer;
   $('hardware').checked = state.includeHardware;
-  $('min-reviews').value = state.minReviews; $('release').value = state.release;
+  $('release').value = state.release;
+  if (!preserveReviewDraft || !reviewDraftDirty) {
+    for (const [field, id] of reviewFields) $(id).value = field === 'minReviews' ? state[field] || '' : state[field] ?? '';
+    setReviewError(''); reviewDraftDirty = false;
+  }
   if (!preserveDateDraft || !dateDraftDirty) {
     $('release-from').value = state.releaseFrom; $('release-to').value = state.releaseTo;
     setDateError(''); dateDraftDirty = false;
@@ -700,6 +708,7 @@ function syncControls(preserveDateDraft = false, preserveSearchDraft = false, pr
   }
   $('active-count').textContent = state.has.length + state.not.length;
   $('active-tag-count').textContent = state.hasTags.length + state.notTags.length;
+  $('active-review-count').textContent = reviewFields.filter(([field]) => field === 'minReviews' ? state[field] > 0 : state[field] !== null).length;
   $('active-date-count').textContent = Number(!!state.releaseFrom) + Number(!!state.releaseTo);
   $('active-compatibility-count').textContent = Object.values(state.compatibility).filter(value => value !== 'ignore').length;
   $('active-language-count').textContent = state.hasLanguages.length + state.notLanguages.length;
@@ -732,6 +741,13 @@ function syncControls(preserveDateDraft = false, preserveSearchDraft = false, pr
   }
   for (const [role, label] of creditFields) {
     if (state[role]) addChip(role, 'developer-chip', `${label}: ${state[role]} ×`, `Remove ${role} filter`, () => setFilters({ [role]: '' }));
+  }
+  for (const [field, , label] of reviewFields) {
+    if (field === 'minReviews' ? !state[field] : state[field] === null) continue;
+    const count = field.endsWith('Reviews'), minimum = field.startsWith('min');
+    const value = count ? fmt(state[field]) : state[field] + '%';
+    addChip(field, 'review-chip', `${count ? 'Reviews' : 'Positive reviews'} ${minimum ? '≥' : '≤'} ${value} ×`,
+      'Remove ' + label.toLowerCase(), () => setFilters({ [field]: field === 'minReviews' ? 0 : null }));
   }
   for (const kind of ['hasTags', 'notTags']) for (const name of state[kind]) {
     const required = kind === 'hasTags';
@@ -776,6 +792,32 @@ function setDateError(message) {
     if (message) $(id).setAttribute('aria-invalid', 'true');
     else $(id).removeAttribute('aria-invalid');
   }
+}
+function setReviewError(message) {
+  if (message && $('review-picker').hidden) togglePicker('review');
+  $('review-error').textContent = message; $('review-error').hidden = !message;
+  for (const [, id] of reviewFields) {
+    if (message) $(id).setAttribute('aria-invalid', 'true');
+    else $(id).removeAttribute('aria-invalid');
+  }
+}
+function readReviewDraft() {
+  for (const [, id, label] of reviewFields) {
+    if (!$(id).validity.valid) { setReviewError(`${label}: ${$(id).validationMessage}`); return null; }
+  }
+  const patch = Object.fromEntries(reviewFields.map(([field, id]) => [field, $(id).value === '' ? field === 'minReviews' ? 0 : null : Number($(id).value)]));
+  try { normalizeQuery({ ...state, ...patch }, data.features, data.tags, data.languages); }
+  catch (error) { setReviewError(error.message); return null; }
+  setReviewError(''); return patch;
+}
+function applyReviews() {
+  reviewDraftDirty = true;
+  const patch = readReviewDraft();
+  if (!patch) return;
+  if (serializeQuery({ ...state, ...patch }, data.features, data.tags, data.languages) === requestedSearch && activeQueryRequest === latestRequest && $('error').hidden) {
+    reviewDraftDirty = false; return;
+  }
+  setFilters(patch);
 }
 function applyReleaseDates(otherFilters = {}) {
   dateDraftDirty = true;
@@ -944,7 +986,7 @@ function filterTagOptions() {
 }
 function togglePicker(kind) {
   const open = $(kind + '-picker').hidden;
-  for (const name of ['feature', 'tag', 'date', 'compatibility', 'language', 'developer']) {
+  for (const name of ['feature', 'tag', 'review', 'date', 'compatibility', 'language', 'developer']) {
     const expanded = name === kind && open; $(name + '-picker').hidden = !expanded;
     const searchControl = $(name + '-search-control'); if (searchControl) searchControl.hidden = !expanded;
     $(name + '-toggle').setAttribute('aria-expanded', String(expanded));
@@ -969,12 +1011,15 @@ for (const preset of PRESETS) {
   const button = element('button', 'view-button'); button.append(icon(preset.id === 'feature-leaders' ? 'trophy' : 'warning'), element('span', '', preset.title)); button.type = 'button'; button.disabled = true; button.dataset.preset = preset.id; button.title = preset.description;
   button.addEventListener('click', () => setFilters(preset.query)); $('presets').append(button);
 }
-$('filters').addEventListener('submit', e => { e.preventDefault(); if ($('min-reviews').reportValidity()) applyReleaseDates({ ...textFilterPatch(), minReviews: Number($('min-reviews').value) }); });
+$('filters').addEventListener('submit', e => {
+  e.preventDefault();
+  const reviews = readReviewDraft();
+  if (reviews) applyReleaseDates({ ...textFilterPatch(), ...reviews });
+});
 for (const [field, id] of textFields) $(id).addEventListener('input', e => {
   clearTimeout(inputTimer); state = { ...state, [field]: e.target.value }; latestRequest = ++requestId;
   inputTimer = setTimeout(() => setFilters(textFilterPatch()), 250);
 });
-$('early-access').addEventListener('change', e => setFilters({ includeEarlyAccess: e.target.checked }));
 $('accessibility').addEventListener('change', e => setFilters({ includeAccessibility: e.target.checked }));
 $('multiplayer').addEventListener('change', e => setFilters({ includeMultiplayer: e.target.checked }));
 $('hardware').addEventListener('change', e => setFilters({ includeHardware: e.target.checked }));
@@ -986,11 +1031,15 @@ for (const id of ['release-from', 'release-to']) {
 }
 $('sort').addEventListener('change', e => setFilters({ sort: e.target.value + '-' + state.sort.split('-')[1] }));
 for (const direction of ['asc', 'desc']) $('sort-' + direction).addEventListener('click', () => setFilters({ sort: state.sort.split('-')[0] + '-' + direction }));
-$('min-reviews').addEventListener('change', e => { if (e.target.value !== '' && e.target.reportValidity()) setFilters({ minReviews: Number(e.target.value) }); else e.target.value = state.minReviews; });
+for (const [, id] of reviewFields) {
+  $(id).addEventListener('input', () => { reviewDraftDirty = true; });
+  $(id).addEventListener('change', applyReviews);
+  $(id).addEventListener('invalid', () => { if ($('review-picker').hidden) togglePicker('review'); });
+}
 $('feature-search').addEventListener('input', e => { for (const label of $('feature-options').children) label.hidden = !label.dataset.name.includes(e.target.value.toLowerCase()); });
 $('tag-search').addEventListener('input', filterTagOptions);
 $('language-search').addEventListener('input', filterLanguageOptions);
-for (const kind of ['feature', 'tag', 'date', 'compatibility', 'language', 'developer']) $(kind + '-toggle').addEventListener('click', () => togglePicker(kind));
+for (const kind of ['feature', 'tag', 'review', 'date', 'compatibility', 'language', 'developer']) $(kind + '-toggle').addEventListener('click', () => togglePicker(kind));
 for (const id of ['reset', 'empty-reset', 'error-reset']) $(id).addEventListener('click', () => setFilters(DEFAULT_QUERY));
 $('retry').addEventListener('click', startWorker);
 $('highlight-chip').addEventListener('click', () => setHighlight(null));

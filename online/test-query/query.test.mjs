@@ -82,7 +82,7 @@ test('accessibility changes score and columns independently of explicit constrai
 test('release and Early Access unknowns follow their explicit inclusion rules', () => {
   assert.deepEqual(ids(runQuery(catalog, { release: 'upcoming' })), [107]);
   assert.ok(ids(runQuery(catalog, { release: 'all' })).includes(106));
-  assert.ok(!ids(runQuery(catalog, { release: 'all' })).includes(108));
+  assert.ok(ids(runQuery(catalog, { release: 'all' })).includes(108));
   const inclusive = ids(runQuery(catalog, { includeEarlyAccess: true }));
   assert.ok(inclusive.includes(104));
   assert.ok(inclusive.includes(108));
@@ -127,7 +127,7 @@ test('empty results use a clamped first page', () => {
 });
 
 test('release sort uses structured dates and puts unknown dates last', () => {
-  assert.deepEqual(ids(runQuery(catalog, { release: 'all', sort: 'release-desc' })), [107, 102, 101, 106]);
+  assert.deepEqual(ids(runQuery(catalog, { release: 'all', sort: 'release-desc' })), [107, 102, 104, 108, 101, 106]);
 });
 
 test('URL state round trips Unicode, punctuation, feature slugs, and pagination', () => {

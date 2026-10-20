@@ -17,7 +17,7 @@ async (page, options = {}) => {
   const draft = '　Ｅｌｄｅｎ Ring  ';
   await search.fill(draft); await searchSettled('Elden Ring');
   check('The raw title draft survives Unicode normalization and whitespace trimming', await search.inputValue() === draft);
-  await page.locator('#early-access').check(); await settled();
+  await page.locator('#release').selectOption('released-ea'); await settled();
   check('Other filters preserve the raw title draft while matching and sharing the normalized title', await search.inputValue() === draft && (await view()).filters.q === 'Elden Ring' && new URL(page.url()).searchParams.get('q') === 'Elden Ring');
   await search.press('Enter'); await settled();
   check('Submitting filters preserves the raw title draft', await search.inputValue() === draft);

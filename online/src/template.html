@@ -34,15 +34,16 @@
       <fieldset id="query-controls" disabled>
         <div class="search-row">
           <label class="search-label" for="search">Game title<input type="search" id="search" placeholder="Find a game by title…" autocomplete="off"></label>
-          <label for="release">Release status<select id="release"><option value="released">Released</option><option value="upcoming">Upcoming</option><option value="all">All / unknown</option></select></label>
+          <label for="release">Release status<select id="release"><option value="released">Released</option><option value="released-ea">Released + Early Access</option><option value="early-access">Early Access</option><option value="upcoming">Upcoming</option><option value="all">All / unknown</option></select></label>
           <div class="sort-control"><label for="sort">Sort by</label><div class="sort-inputs"><select id="sort"><option value="score">Feature Score</option><option value="features">Feature Count</option><option value="rating">Review Score</option><option value="reviews">Review Count</option><option value="title">Title</option><option value="release">Release date</option></select><div class="sort-direction" role="group" aria-label="Sort direction"><button id="sort-asc" type="button" aria-label="Sort ascending" aria-pressed="false" title="Ascending"><svg class="icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M12 20V4m-6 6 6-6 6 6"/></svg></button><button id="sort-desc" type="button" aria-label="Sort descending" aria-pressed="true" title="Descending"><svg class="icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M12 4v16m-6-6 6 6 6-6"/></svg></button></div></div></div>
         </div>
         <div class="filter-row">
-          <label class="toggle-control"><input id="early-access" type="checkbox"><span class="switch" aria-hidden="true"></span><span>Include Early Access</span></label>
-          <label class="toggle-control"><input id="accessibility" type="checkbox"><span class="switch" aria-hidden="true"></span><span>Count accessibility features</span></label>
-          <label class="toggle-control" title="Include multiplayer modes, Remote Play Together, turn notifications, and chat accessibility in columns, counts, and scores."><input id="multiplayer" type="checkbox"><span class="switch" aria-hidden="true"></span><span>Count multiplayer features</span></label>
-          <label class="toggle-control" title="Include one compatibility rating each for Steam Deck, Steam Machine, Steam Frame and SteamOS in columns, counts and scores."><input id="hardware" type="checkbox"><span class="switch" aria-hidden="true"></span><span>Count Steam hardware ratings</span></label>
-          <label class="reviews-control" for="min-reviews"><span>Minimum reviews</span><input id="min-reviews" type="number" min="0" step="1" value="20" inputmode="numeric"></label>
+          <div class="count-controls" role="group" aria-label="Count optional features">
+            <span class="picker-label">Count:</span>
+            <label class="toggle-control" title="Include multiplayer modes, Remote Play Together, turn notifications, and chat accessibility in columns, counts, and scores."><input id="multiplayer" type="checkbox"><span class="switch" aria-hidden="true"></span><span>Multiplayer</span></label>
+            <label class="toggle-control" title="Include accessibility features in columns, counts, and scores."><input id="accessibility" type="checkbox"><span class="switch" aria-hidden="true"></span><span>Accessibility</span></label>
+            <label class="toggle-control" title="Include one compatibility rating each for Steam Deck, Steam Machine, Steam Frame and SteamOS in columns, counts and scores."><input id="hardware" type="checkbox"><span class="switch" aria-hidden="true"></span><span>Compatibility</span></label>
+          </div>
           <button id="reset" type="button" class="reset-button">Reset filters</button>
         </div>
         <div class="filter-pickers">
@@ -50,6 +51,7 @@
             <span class="picker-label">Filters:</span>
             <button id="feature-toggle" class="picker-toggle" type="button" aria-label="Require or exclude features" aria-expanded="false" aria-controls="feature-picker"><span class="picker-chevron" aria-hidden="true"><svg viewBox="0 0 16 16" focusable="false"><path d="m6 3 5 5-5 5"/></svg></span>Features <span id="active-count" class="pill">0</span></button>
             <button id="tag-toggle" class="picker-toggle" type="button" aria-label="Require or exclude tags" aria-expanded="false" aria-controls="tag-picker"><span class="picker-chevron" aria-hidden="true"><svg viewBox="0 0 16 16" focusable="false"><path d="m6 3 5 5-5 5"/></svg></span>Tags <span id="active-tag-count" class="pill">0</span></button>
+            <button id="review-toggle" class="picker-toggle" type="button" aria-label="Filter by reviews" aria-expanded="false" aria-controls="review-picker"><span class="picker-chevron" aria-hidden="true"><svg viewBox="0 0 16 16" focusable="false"><path d="m6 3 5 5-5 5"/></svg></span>Reviews <span id="active-review-count" class="pill">1</span></button>
             <button id="date-toggle" class="picker-toggle" type="button" aria-label="Filter by release date" aria-expanded="false" aria-controls="date-picker"><span class="picker-chevron" aria-hidden="true"><svg viewBox="0 0 16 16" focusable="false"><path d="m6 3 5 5-5 5"/></svg></span>Release date <span id="active-date-count" class="pill">0</span></button>
             <button id="compatibility-toggle" class="picker-toggle" type="button" aria-label="Filter by compatibility" aria-expanded="false" aria-controls="compatibility-picker"><span class="picker-chevron" aria-hidden="true"><svg viewBox="0 0 16 16" focusable="false"><path d="m6 3 5 5-5 5"/></svg></span>Compatibility <span id="active-compatibility-count" class="pill">0</span></button>
             <button id="language-toggle" class="picker-toggle" type="button" aria-label="Filter by languages" aria-expanded="false" aria-controls="language-picker"><span class="picker-chevron" aria-hidden="true"><svg viewBox="0 0 16 16" focusable="false"><path d="m6 3 5 5-5 5"/></svg></span>Languages <span id="active-language-count" class="pill">0</span></button>
@@ -64,6 +66,20 @@
           <section id="tag-picker" class="picker-panel" aria-label="Tag filters" hidden>
             <div id="tag-options" class="feature-options tag-options"></div>
             <p id="tag-empty" class="tag-coverage" role="status" hidden>No tags match your search.</p>
+          </section>
+          <section id="review-picker" class="picker-panel" aria-label="Review filters" hidden>
+            <div class="review-ranges">
+              <fieldset class="review-range"><legend>Review count</legend><div class="review-fields">
+                <label for="min-reviews">Minimum<input id="min-reviews" type="number" min="0" max="9007199254740991" step="1" value="20" placeholder="No minimum" inputmode="numeric" aria-label="Minimum review count" aria-describedby="review-help review-error"></label>
+                <label for="max-reviews">Maximum<input id="max-reviews" type="number" min="0" max="9007199254740991" step="1" placeholder="No maximum" inputmode="numeric" aria-label="Maximum review count" aria-describedby="review-help review-error"></label>
+              </div></fieldset>
+              <fieldset class="review-range"><legend>Positive reviews (%)</legend><div class="review-fields">
+                <label for="min-rating">Minimum<input id="min-rating" type="number" min="0" max="100" step="any" placeholder="No minimum" inputmode="decimal" aria-label="Minimum positive review percentage" aria-describedby="review-help review-error"></label>
+                <label for="max-rating">Maximum<input id="max-rating" type="number" min="0" max="100" step="any" placeholder="No maximum" inputmode="decimal" aria-label="Maximum positive review percentage" aria-describedby="review-help review-error"></label>
+              </div></fieldset>
+            </div>
+            <p id="review-help" class="language-help">Leave a field blank for no limit. When a review filter is active, games without the filtered review data are omitted.</p>
+            <p id="review-error" class="date-error" role="status" hidden></p>
           </section>
           <section id="date-picker" class="picker-panel" aria-label="Release date filters" hidden>
             <div class="date-fields">
@@ -103,7 +119,7 @@
       <p id="view-note" class="view-note" hidden></p>
       <div id="matrix-region" class="matrix-region" role="region" aria-label="Scrollable game feature matrix" tabindex="0">
         <table id="matrix"><caption class="sr-only">Steam games, weighted feature scores, and advertised features. Equal scores or counts share a rank when sorted by that measure.</caption><thead id="matrix-head"></thead><tbody id="matrix-body"></tbody></table>
-        <div id="empty-state" class="empty-state" hidden><span class="empty-icon" aria-hidden="true">⌕</span><h3>No games match these filters</h3><p>Try removing a filter or lowering the review threshold.</p><button id="empty-reset" type="button">Reset filters</button></div>
+        <div id="empty-state" class="empty-state" hidden><span class="empty-icon" aria-hidden="true">⌕</span><h3>No games match these filters</h3><p>Try removing a filter or widening a review range.</p><button id="empty-reset" type="button">Reset filters</button></div>
       </div>
       <nav class="pagination" aria-label="Result pages"><button id="previous" type="button">← Previous</button><span id="page-summary"></span><label for="page" class="sr-only">Go to page</label><input id="page" type="number" min="1" value="1" inputmode="numeric"><button id="go-page" type="button">Go</button><button id="next" type="button">Next →</button></nav>
     </section>
@@ -111,7 +127,7 @@
       <div class="method-content">
         <p><strong>Feature Score:</strong> Steam Cloud +3; Steam Achievements +2; In-App Purchases, Third-party DRM, Third-party account required and No keyboard/mouse support −1; Third-party Anti-Cheat −1 when kernel mode is disclosed and 0 otherwise; Valve Anti-Cheat, Gamepad Recommended, Includes Source SDK and VR Only 0; other ordinary features +1. Optional Steam hardware ratings award +1 for verified/supported, −1 for unsupported, and 0 for playable or untested. Each hardware target occupies one column and counts once when its rating is known. Feature Count includes zero- and negative-point badges. The maximum score sums positive weights.</p>
         <p><strong>Features?</strong> reflects Steam’s published disclosures. Explicit no-DRM declarations and wholly optional accounts do not incur a penalty; accounts required for particular modes or features do. Third-party Anti-Cheat (TAC) excludes VAC alone; a game may list both TAC and VAC. Click these entries for the publisher’s qualifications and anti-cheat details. Missing disclosures do not verify the absence of DRM, account requirements or anti-cheat.</p>
-        <p>Counting toggles change columns, counts and scores; active filters still apply. Tags and languages do not affect scores or counts. All requirements and exclusions apply together. Games without feature, tag, or language information are omitted when filters for that information are active. Set Minimum reviews to 0 to include unknown review counts. Excluding Early Access also excludes unknown Early Access status.</p>
+        <p>Counting toggles change columns, counts and scores; active filters still apply. Tags and languages do not affect scores or counts. All requirements and exclusions apply together. Games without feature, tag, language or review information are omitted when filters for that information are active. Clear both review-count bounds to include unknown counts. Review ranges include their endpoints. Released excludes Early Access and unknown Early Access status; Released + Early Access includes both. All / unknown includes every release status.</p>
         <p><strong>Review Score:</strong> the percentage of positive reviews. Steam review counts cover Steam purchases in all languages; older counts may use different rules.</p>
         <p>Badges are publisher claims and may be incomplete or inaccurate. Missing Steam Cloud does not rule out another cloud-save service.</p>
         <p id="method-dates"></p>
@@ -123,6 +139,12 @@
   <dialog id="news-dialog" class="text-dialog" aria-labelledby="news-title">
     <div class="text-dialog-header"><h2 id="news-title">News</h2><button id="news-close" type="button" class="text-dialog-close" aria-label="Close News" autofocus><svg class="icon" aria-hidden="true" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div>
     <div id="news-content" class="text-dialog-content" tabindex="0" role="region" aria-label="News history">
+      <h3><time datetime="2026-10-20">2026-10-20</time></h3>
+      <ul>
+        <li>Improved review filtering: minimum and maximum review counts and positive-review percentages.</li>
+        <li>New release status options: can also show <em>only</em> Early Access games.</li>
+        <li>Improved feature counting/displaying controls: simplified/compacted and now in table order.</li>
+      </ul>
       <h3><time datetime="2026-10-19">2026-10-19</time></h3>
       <ul>
         <li>Filter games by developer or publisher name in the new Developers panel.</li>

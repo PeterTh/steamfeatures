@@ -131,6 +131,10 @@ Disclosure flags and details are projected from the existing StoreBrowse/PICS ar
 
 Feature-filter URLs use the table's unique 2–3-character codes, for example `has=ACH,CLD&not=DRM,TAC`. Codes are case-insensitive; existing full feature keys remain valid and can be mixed with codes. Generated links use uppercase codes. Codes are public URL identifiers and should remain stable; the feature-code tests check uniqueness across all table columns, including optional ones. Hardware ratings retain their dedicated parameters, such as `deck=verified`.
 
+The Count row follows table order: Multiplayer, Accessibility, Compatibility. Early Access belongs to Release status: `released` excludes Early Access and unknown Early Access status, `released-ea` includes all released games, `early-access` requires a released game explicitly in Early Access, `upcoming` selects upcoming games, and `all` includes unknown statuses. Older `ea=1` links still select the combined released/Early Access option.
+
+Reviews provides inclusive `minReviews`, `maxReviews`, `minRating` and `maxRating` bounds; ratings are positive-review percentages from 0 to 100 and may be fractional. The default minimum count remains 20. A blank minimum count means 0 (no lower bound); other blank bounds mean no limit. Unknown counts require both count bounds to be unrestricted; unknown ratings cannot satisfy an active rating bound. Bounds combine with every other filter, and contradictory ranges fail explicitly. Each active bound has a removable chip, including the default 20-review minimum.
+
 [`view-state.mjs`](src/view-state.mjs) adds the optional `highlight=<code>` URL parameter, with full feature keys also accepted. Highlighting selects one column without changing the query, including when a counting toggle hides that column. Combined hardware columns use their table codes, such as `highlight=DCK` for Steam Deck.
 
 Game titles preview their cards on hover or focus; clicking locks a card open, including while the table scrolls. The row icons and bold card links open Steam, SteamDB and Steamograph. Cards keep the interactive tag list and omit the redundant static genre line.

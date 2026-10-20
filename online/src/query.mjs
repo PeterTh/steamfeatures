@@ -7,9 +7,9 @@ import { normalizeCreditSearch, gameCreditNames } from './game-credits.mjs';
 export const PAGE_SIZE = 50;
 export const DEFAULT_QUERY = Object.freeze({
   q: '', developer: '', publisher: '', has: Object.freeze([]), not: Object.freeze([]),
-  hasTags: Object.freeze([]), notTags: Object.freeze([]), minReviews: 20,
+  hasTags: Object.freeze([]), notTags: Object.freeze([]), minReviews: 20, maxReviews: null, minRating: null, maxRating: null,
   hasLanguages: Object.freeze([]), notLanguages: Object.freeze([]),
-  includeEarlyAccess: false, includeAccessibility: false, includeMultiplayer: false, includeHardware: false,
+  includeAccessibility: false, includeMultiplayer: false, includeHardware: false,
   compatibility: Object.freeze(Object.fromEntries(compatibilityTargets.map(target => [target.key, 'ignore']))),
   release: 'released', releaseFrom: '', releaseTo: '', sort: 'score-desc', page: 1,
 });
@@ -28,7 +28,7 @@ export const PRESETS = Object.freeze([
 ]);
 
 const SORTS = new Set(['score', 'features', 'reviews', 'rating', 'title', 'release'].flatMap(field => [`${field}-asc`, `${field}-desc`]));
-const RELEASES = new Set(['released', 'upcoming', 'all']);
+const RELEASES = new Set(['released', 'released-ea', 'early-access', 'upcoming', 'all']);
 const titleCollator = new Intl.Collator('en', { sensitivity: 'base', numeric: true });
 const preparedCatalogs = new WeakMap();
 const preparedMarker = Symbol('prepared-catalog');
@@ -64,6 +64,16 @@ function booleanValue(value, fallback, label) {
   if (value === true || value === '1' || value === 1 || value === 'true') return true;
   if (value === false || value === '0' || value === 0 || value === 'false') return false;
   throw new Error(`${label} must be true or false.`);
+}
+
+function ratingBound(value, label) {
+  if (value === undefined || value === null || value === '') return null;
+  if (!['number', 'string'].includes(typeof value) || !/^(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?$/.test(String(value))) {
+    throw new Error(`${label} must be a percentage from 0 to 100.`);
+  }
+  const number = Number(value);
+  if (!Number.isFinite(number) || number < 0 || number > 100) throw new Error(`${label} must be a percentage from 0 to 100.`);
+  return number;
 }
 
 function knownReleaseDate(value) {
@@ -173,7 +183,10 @@ export function normalizeQuery(input = {}, features, tags = [], languages = []) 
   const notLanguages = languageFilterList(source.notLanguages, languagesByKey);
   const languageConflict = hasLanguages.find(value => notLanguages.includes(value));
   if (languageConflict) throw new Error(`Language support cannot be both required and excluded: ${languageConflict}.`);
-  const release = source.release ?? DEFAULT_QUERY.release;
+  // Existing ea=1 links select the combined released/Early Access option.
+  const legacyEarlyAccess = booleanValue(source.includeEarlyAccess, false, 'Early Access');
+  const release = (source.release ?? DEFAULT_QUERY.release) === 'released' && legacyEarlyAccess
+    ? 'released-ea' : source.release ?? DEFAULT_QUERY.release;
   const sort = source.sort ?? DEFAULT_QUERY.sort;
   if (!RELEASES.has(release)) throw new Error(`Unknown release filter: ${String(release)}.`);
   if (!SORTS.has(sort)) throw new Error(`Unknown sort order: ${String(sort)}.`);
@@ -182,12 +195,17 @@ export function normalizeQuery(input = {}, features, tags = [], languages = []) 
   if (releaseFrom && releaseTo && resolveReleaseBound(releaseFrom) > resolveReleaseBound(releaseTo, true)) {
     throw new Error('Release start date must be on or before the end date.');
   }
+  const minReviews = wholeNumber(source.minReviews, DEFAULT_QUERY.minReviews, 0, 'Minimum review count');
+  const maxReviews = wholeNumber(source.maxReviews, null, 0, 'Maximum review count');
+  const minRating = ratingBound(source.minRating, 'Minimum review rating');
+  const maxRating = ratingBound(source.maxRating, 'Maximum review rating');
+  if (maxReviews !== null && minReviews > maxReviews) throw new Error('Minimum review count must not exceed the maximum.');
+  if (minRating !== null && maxRating !== null && minRating > maxRating) throw new Error('Minimum review rating must not exceed the maximum.');
   return {
     q: String(source.q ?? '').normalize('NFKC').trim(), has, not, hasTags, notTags, hasLanguages, notLanguages,
     developer: String(source.developer ?? '').normalize('NFKC').trim(),
     publisher: String(source.publisher ?? '').normalize('NFKC').trim(),
-    minReviews: wholeNumber(source.minReviews, DEFAULT_QUERY.minReviews, 0, 'Minimum reviews'),
-    includeEarlyAccess: booleanValue(source.includeEarlyAccess, DEFAULT_QUERY.includeEarlyAccess, 'Early Access'),
+    minReviews, maxReviews, minRating, maxRating,
     includeAccessibility: booleanValue(source.includeAccessibility, DEFAULT_QUERY.includeAccessibility, 'Accessibility'),
     includeMultiplayer: booleanValue(source.includeMultiplayer, DEFAULT_QUERY.includeMultiplayer, 'Multiplayer'),
     includeHardware: booleanValue(source.includeHardware, DEFAULT_QUERY.includeHardware, 'Steam hardware'),
@@ -210,6 +228,7 @@ export function parseQuery(search = '', features, tags = [], languages = []) {
   const split = key => params.getAll(key).flatMap(value => value.split(',')).map(value => value.trim()).filter(Boolean);
   return normalizeQuery({
     q: single('q'), developer: single('dev'), publisher: single('pub'), has: split('has'), not: split('not'), minReviews: single('minReviews'),
+    maxReviews: single('maxReviews'), minRating: single('minRating'), maxRating: single('maxRating'),
     hasTags: params.getAll('tag'), notTags: params.getAll('notTag'),
     hasLanguages: split('lang'), notLanguages: split('notLang'),
     includeEarlyAccess: single('ea'), includeAccessibility: single('a11y'), includeMultiplayer: single('mp'), includeHardware: single('hw'),
@@ -234,7 +253,7 @@ export function serializeQuery(input, features, tags = [], languages = []) {
   for (const language of query.hasLanguages) params.append('lang', language);
   for (const language of query.notLanguages) params.append('notLang', language);
   if (query.minReviews !== DEFAULT_QUERY.minReviews) params.set('minReviews', String(query.minReviews));
-  if (query.includeEarlyAccess) params.set('ea', '1');
+  for (const field of ['maxReviews', 'minRating', 'maxRating']) if (query[field] !== null) params.set(field, String(query[field]));
   if (query.includeAccessibility) params.set('a11y', '1');
   if (query.includeMultiplayer) params.set('mp', '1');
   if (query.includeHardware) params.set('hw', '1');
@@ -392,6 +411,7 @@ export function runQuery(catalog, input = DEFAULT_QUERY) {
   const title = query.q.toLocaleLowerCase('en');
   const releaseFrom = resolveReleaseBound(query.releaseFrom);
   const releaseTo = resolveReleaseBound(query.releaseTo, true);
+  const releaseStatus = ['released-ea', 'early-access'].includes(query.release) ? 'released' : query.release;
   const mask = (query.includeAccessibility ? 1 : 0) | (query.includeMultiplayer ? 2 : 0) | (query.includeHardware ? 4 : 0);
   const count = row => row.counts[mask];
   const score = row => row.scores[mask];
@@ -399,13 +419,17 @@ export function runQuery(catalog, input = DEFAULT_QUERY) {
     (query.includeAccessibility || !feature.accessibility) && (query.includeMultiplayer || !feature.multiplayer) && (query.includeHardware || !feature.hardware));
   const matches = prepared.games.filter(row => {
     const game = row.game;
-    if (!query.includeEarlyAccess && game.earlyAccess !== false) return false;
-    if (query.release !== 'all' && game.releaseStatus !== query.release) return false;
+    if (releaseStatus !== 'all' && game.releaseStatus !== releaseStatus) return false;
+    if (query.release === 'released' && game.earlyAccess !== false) return false;
+    if (query.release === 'early-access' && game.earlyAccess !== true) return false;
     if (releaseFrom && (row.release === null || row.release < releaseFrom)) return false;
     if (releaseTo && (row.release === null || row.release > releaseTo)) return false;
     if (title && !row.title.includes(title)) return false;
     if (filterCredits && creditTerms.some((term, role) => term && !row.credits?.[role]?.some(id => prepared.creditSearchNames[id].includes(term)))) return false;
     if (query.minReviews > 0 && (row.reviews === null || row.reviews < query.minReviews)) return false;
+    if (query.maxReviews !== null && (row.reviews === null || row.reviews > query.maxReviews)) return false;
+    if (query.minRating !== null && (row.rating === null || row.rating < query.minRating)) return false;
+    if (query.maxRating !== null && (row.rating === null || row.rating > query.maxRating)) return false;
     if (constrainedFeatures.some(feature => !isFeatureKnown(game, feature))) return false;
     if (query.has.some(id => !game.featureIds.includes(id))) return false;
     if (query.not.some(id => game.featureIds.includes(id))) return false;
