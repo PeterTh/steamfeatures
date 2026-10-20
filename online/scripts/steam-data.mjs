@@ -6,9 +6,11 @@ import { createHash, randomUUID } from 'node:crypto';
 import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { createZstdCompress, createZstdDecompress, constants } from 'node:zlib';
+import { availableParallelism } from 'node:os';
 
 export const STEAM_DATA_FORMAT = 'steam-feature-atlas-raw-v2';
 export const STEAM_DATA_LIMITS = Object.freeze({ compressed: 1024 ** 3, expanded: 8 * 1024 ** 3, line: 32 * 1024 ** 2 });
+export const STEAM_ARCHIVE_COMPRESSION_WORKERS = Math.min(3, Math.max(0, availableParallelism() - 1));
 const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const validId = id => Number.isSafeInteger(id) && id > 0 && id <= 0xffffffff;
 const encode = value => value === undefined ? null : JSON.stringify(value);
@@ -171,7 +173,8 @@ export async function writeSteamDataArchive({ records, tagDictionary = [], outpu
   }
   try {
     await pipeline(Readable.from(lines()), meter({ maximum: STEAM_DATA_LIMITS.expanded, onSize: size => { uncompressedBytes = size; } }),
-      createZstdCompress({ params: { [constants.ZSTD_c_compressionLevel]: 19, [constants.ZSTD_c_checksumFlag]: 1 } }),
+      createZstdCompress({ params: { [constants.ZSTD_c_compressionLevel]: 19, [constants.ZSTD_c_checksumFlag]: 1,
+        [constants.ZSTD_c_nbWorkers]: STEAM_ARCHIVE_COMPRESSION_WORKERS } }),
       meter({ maximum: STEAM_DATA_LIMITS.compressed, hash: digest, onSize: size => { bytes = size; } }), createWriteStream(temporary, { flags: 'wx' }));
     const sha256 = digest.digest('hex');
     const descriptor = { format: STEAM_DATA_FORMAT, file: `steam-raw.${sha256.slice(0, 16)}.jsonl.zst`, sha256, bytes, uncompressedBytes, apps, successfulApps, picsApps };

@@ -1,0 +1,61 @@
+name: Benchmark parallel compression
+
+on:
+  push:
+    branches: ['benchmark/compression-*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: compression-benchmark-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: candidate/online
+    env:
+      COMPRESSION_BASELINE: ${{ github.workspace }}/baseline/online
+      EXPECTED_CATALOG_SNAPSHOT: c66976d24a5a8d3eaffda859377af991ac0e0a555872e091dd22fe1b4526141d
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: candidate
+      - uses: actions/checkout@v4
+        with:
+          ref: a15d487c69ea7d9f278286cb88758e063c0210df
+          path: baseline
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install locked dependencies
+        run: npm ci --ignore-scripts
+      - name: Run tests
+        run: npm test
+      - name: Freeze completed published inputs and inspect runner
+        run: node --max-old-space-size=4096 scripts/benchmark-compression.mjs prepare
+      - name: Baseline browser compression
+        run: node --max-old-space-size=4096 scripts/benchmark-compression.mjs baseline-browser
+      - name: Parallel browser compression
+        run: node --max-old-space-size=4096 scripts/benchmark-compression.mjs parallel-browser
+      - name: Baseline raw archive compression
+        run: node --max-old-space-size=4096 scripts/benchmark-compression.mjs baseline-archive
+      - name: Parallel raw archive compression
+        run: node --max-old-space-size=4096 scripts/benchmark-compression.mjs parallel-archive
+      - name: Compare measurements and verified outputs
+        run: node scripts/benchmark-compression.mjs summarize
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: compression-benchmark
+          path: |
+            candidate/online/.cache/compression-benchmark/results/*.json
+            candidate/online/.cache/compression-benchmark/manifest.json
+            candidate/online/.cache/compression-benchmark/input-info.json
+          if-no-files-found: warn
+          retention-days: 7

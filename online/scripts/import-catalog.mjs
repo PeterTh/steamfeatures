@@ -13,13 +13,13 @@ import { buildSteamArchiveSnapshot } from './steam-archive-snapshot.mjs';
 import { recoverArchivedDenials } from './steam-denials.mjs';
 import { createRefreshState, validateRefreshState } from './refresh-state.mjs';
 import { refreshSteam, mergeSteamState, auditSteamCoverage } from './steam-refresh.mjs';
-import { writeBinaryCatalog, writeProgressiveCatalog } from './catalog-package.mjs';
+import { writeCatalogPackages } from './catalog-package.mjs';
 import { openSteamData, withSteamData, projectSteamData, mergeSteamEnrichment } from './steam-data-import.mjs';
 import { writeSteamDataArchive } from './steam-data.mjs';
 import { archiveRecord } from './steam-enrichment.mjs';
 import { createPicsClient } from './steam-pics.mjs';
 import { writeGameImages, retainGameImages } from './game-images.mjs';
-import { normalizeGameCredits, writeGameCredits } from './game-credits.mjs';
+import { normalizeGameCredits } from './game-credits.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -164,9 +164,8 @@ export async function importCatalog({ sourceFile, output = resolve(ROOT, 'dist')
   await mkdir(dataDirectory, { recursive: true });
   await writeFile(resolve(dataDirectory, filename), bytes);
   await writeFile(resolve(dataDirectory, `${filename}.gz`), compressed);
-  current.binary = await writeBinaryCatalog(catalog, dataDirectory);
-  current.progressive = await writeProgressiveCatalog(catalog, dataDirectory, current.binary.sha256);
-  const gameCredits = await writeGameCredits(games, credits, dataDirectory, current.binary.sha256);
+  const { binary, progressive, gameCredits } = await writeCatalogPackages(catalog, dataDirectory, credits);
+  Object.assign(current, { binary, progressive });
   let stateDescriptor;
   if (refreshState) {
     const stateBytes = gzipSync(Buffer.from(JSON.stringify(refreshState)), { level: 9 });
