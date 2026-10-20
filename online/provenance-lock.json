@@ -1,15 +1,15 @@
 {
   "version": 1,
-  "importedAt": "2026-10-20T16:18:29.840Z",
+  "importedAt": "2026-10-20T17:52:40.104Z",
   "fixture": false,
   "sources": {
     "apps": {
       "repository": "https://github.com/BlueBoxWare/steamdb",
-      "revision": "64ef63c7fd15cb2d13a340cc9d5fbc2367380ba5",
-      "publishedAt": "2026-10-19T19:52:15Z",
+      "revision": "8664c64d34d9a42c37dcdadd18656d0208efedef",
+      "publishedAt": "2026-10-20T16:59:58Z",
       "license": "MIT",
-      "sha256": "e2cdd91a4c732dbbb32b668bbb059fa6c7f417e6d72b5769802e30ca32ab5661",
-      "shards": 1783
+      "sha256": "e3863eacebb6b176df897b39086054d79a3c77a993b9e582008a659b07a6b365",
+      "shards": 1785
     },
     "reviews": {
       "repository": "https://github.com/leinstay/steamdb",
@@ -28,86 +28,86 @@
       "country": "US",
       "language": "english",
       "reviews": "All-language Steam-purchase reviews",
-      "refreshedAt": "2026-10-20T16:18:29.840Z"
+      "refreshedAt": "2026-10-20T17:52:40.104Z"
     }
   },
   "coverage": {
-    "games": 202576,
-    "released": 138490,
-    "upcoming": 64086,
+    "games": 202808,
+    "released": 138492,
+    "upcoming": 64316,
     "unknownRelease": 0,
-    "knownFeatures": 202520,
+    "knownFeatures": 202748,
     "knownReviews": 195864,
     "knownTags": 195846,
     "unknownEarlyAccess": 47,
     "tagCount": 448,
-    "sourceApps": 330688,
+    "sourceApps": 330965,
     "redirectAliases": 168,
     "reviewRows": 191551,
-    "sourceShards": 1783
+    "sourceShards": 1785
   },
   "catalog": {
-    "catalog": "catalog.b329c3880cf6f45a.json",
-    "compressedCatalog": "catalog.b329c3880cf6f45a.json.gz",
-    "sha256": "b329c3880cf6f45a712f663b01a688f1772f3fd57bb7b90a88809795b9ebd172",
-    "gzipSha256": "5cabc3c52be6a2948dfd2cbd1f326a5c5664e6490be2de6d2fabaf7cd321c71b",
-    "bytes": 169488654,
-    "gzipBytes": 12568518,
-    "importedAt": "2026-10-20T16:18:29.840Z",
+    "catalog": "catalog.ed93aee52d69e2de.json",
+    "compressedCatalog": "catalog.ed93aee52d69e2de.json.gz",
+    "sha256": "ed93aee52d69e2de9b198850a1be07a701e4b8681d72e92e4901ecd398f95961",
+    "gzipSha256": "da33ccb3e4c88e98395810fb4cfed08f2a58ba8386210d25d0132000c7c9aee3",
+    "bytes": 169552860,
+    "gzipBytes": 12576281,
+    "importedAt": "2026-10-20T17:52:40.104Z",
     "binary": {
       "format": "steam-feature-atlas-binary-v1",
-      "file": "catalog.c66976d24a5a8d3e.bin",
-      "sha256": "c66976d24a5a8d3eaffda859377af991ac0e0a555872e091dd22fe1b4526141d",
-      "bytes": 19499261,
+      "file": "catalog.e739083da7d0a4b2.bin",
+      "sha256": "e739083da7d0a4b25e185208144c95f088d93929d7468af9ea6da700a735a76f",
+      "bytes": 19515080,
       "gzip": {
-        "file": "catalog.c66976d24a5a8d3e.bin.gz",
-        "sha256": "c8a7b4f6126c19fb0f166749fdee88f12439296658088b1627b68b8048927fc0",
-        "bytes": 6610584
+        "file": "catalog.e739083da7d0a4b2.bin.gz",
+        "sha256": "ff257f3c94c40149c2ceedfb6919d51e1a97f6edbf0410c3cbbddf0e905750ab",
+        "bytes": 6618117
       },
       "brotli": {
-        "file": "catalog.c66976d24a5a8d3e.bin.br",
-        "sha256": "7a4c6029cbe56a1eff3995a95a8d648a93542bede300cc3296d29be5d83171f6",
-        "bytes": 5621362
+        "file": "catalog.e739083da7d0a4b2.bin.br",
+        "sha256": "7c3c3d14372cd50739ce98fd1fdbdca1d857c2b738fcdf4da1d2692db0808615",
+        "bytes": 5620710
       }
     },
     "progressive": {
       "version": 1,
       "minReviews": 20,
-      "snapshot": "c66976d24a5a8d3eaffda859377af991ac0e0a555872e091dd22fe1b4526141d",
+      "snapshot": "e739083da7d0a4b25e185208144c95f088d93929d7468af9ea6da700a735a76f",
       "priority": {
         "format": "steam-feature-atlas-binary-v1",
-        "file": "catalog.0d607c52d44d5c20.bin",
-        "sha256": "0d607c52d44d5c20e3fe7c519af0789d7d4a07076a7acccbab7f08a03843e96d",
-        "bytes": 6647370,
+        "file": "catalog.b8fcb6bc92e52ffa.bin",
+        "sha256": "b8fcb6bc92e52ffac9afa3ccecf0f218eff0b898c9c1a63afd26500d60e44201",
+        "bytes": 6647247,
         "gzip": {
-          "file": "catalog.0d607c52d44d5c20.bin.gz",
-          "sha256": "f42e74bc38a5813fac62b126ce2324c3322549397e2ca13696aad382d3c720cf",
-          "bytes": 2306225
+          "file": "catalog.b8fcb6bc92e52ffa.bin.gz",
+          "sha256": "9dde29122b374b6cbc66ff5410425b88dbde88a1b1537c6789a46b9883f83a85",
+          "bytes": 2306216
         },
         "brotli": {
-          "file": "catalog.0d607c52d44d5c20.bin.br",
-          "sha256": "a6639afcc48b0d4c9af409314107cc404f6b554064066a747d45ce0df6ff75c4",
-          "bytes": 1959279
+          "file": "catalog.b8fcb6bc92e52ffa.bin.br",
+          "sha256": "d8d868b683a4f4ccdb2c747079c42470665474122649571e1da0990d715e98a2",
+          "bytes": 1952833
         }
       },
       "remainder": {
         "format": "steam-feature-atlas-binary-v1",
-        "file": "catalog.ccba082d1d0a478e.bin",
-        "sha256": "ccba082d1d0a478e91581df1efab940b362091feba6b8c84a90ec59cf2346a24",
-        "bytes": 13428599,
+        "file": "catalog.3ebc84e1d4274026.bin",
+        "sha256": "3ebc84e1d4274026f8cc93107944ac7cb84ace972f5ba6994946927c64b923f1",
+        "bytes": 13444409,
         "gzip": {
-          "file": "catalog.ccba082d1d0a478e.bin.gz",
-          "sha256": "cc96ef5b069df6514b9515afc66ed2b94e5c1465fae7d6423de5a5d1eb3c73e6",
-          "bytes": 4391513
+          "file": "catalog.3ebc84e1d4274026.bin.gz",
+          "sha256": "028189667ebc918da34aabc9a6da25cd1d789e2b19f34347c68da31543313bb7",
+          "bytes": 4393882
         },
         "brotli": {
-          "file": "catalog.ccba082d1d0a478e.bin.br",
-          "sha256": "9c2383aae564a4b3149d2bc9346a7d90998b642af1fbf296b3b1b513679fab95",
-          "bytes": 3743907
+          "file": "catalog.3ebc84e1d4274026.bin.br",
+          "sha256": "e488d412a2866ae622375ebc265eedb2a47d0ccfec449ce36a74909e97203593",
+          "bytes": 3744521
         }
       },
       "statistics": {
-        "gameCount": 202576,
+        "gameCount": 202808,
         "tagCounts": [
           5224,
           8438,
@@ -669,19 +669,19 @@
   },
   "gameCredits": {
     "format": "steam-feature-atlas-credits-v1",
-    "snapshot": "c66976d24a5a8d3eaffda859377af991ac0e0a555872e091dd22fe1b4526141d",
-    "file": "game-credits.fd8ad799a32e9a29.bin",
-    "sha256": "fd8ad799a32e9a29023d5790ce112b4eea8030e84e6035b8011afc6bc0f6d9e1",
-    "bytes": 3755879,
+    "snapshot": "e739083da7d0a4b25e185208144c95f088d93929d7468af9ea6da700a735a76f",
+    "file": "game-credits.9e64e2f7ed574dcd.bin",
+    "sha256": "9e64e2f7ed574dcd13935459b559efd384920d65e1656004b8fe30a609957bff",
+    "bytes": 3759726,
     "gzip": {
-      "file": "game-credits.fd8ad799a32e9a29.bin.gz",
-      "sha256": "a0285560c837c6088e950dd6d4618f38175548f72ca14c22e6934cf20aabf8cf",
-      "bytes": 1999068
+      "file": "game-credits.9e64e2f7ed574dcd.bin.gz",
+      "sha256": "40412598b4a6b5c6df8d5af6d82ea61c13fee3b6524997367ae706bfd96eb5f6",
+      "bytes": 2000894
     },
     "brotli": {
-      "file": "game-credits.fd8ad799a32e9a29.bin.br",
-      "sha256": "c7ba06db5d9f4e2374fa6820947e7e5d0eb1779a53ed59f6bda1e014db350ef0",
-      "bytes": 1746061
+      "file": "game-credits.9e64e2f7ed574dcd.bin.br",
+      "sha256": "b1ad606726911a5a513ed457ba0bf10cda519b5a8463be1bf2d97f3f6d80c06f",
+      "bytes": 1746121
     }
   },
   "gameImages": {
@@ -697,21 +697,21 @@
   "refresh": {
     "enabled": true,
     "existingLimit": 4000,
-    "lastRunAt": "2026-10-20T16:18:29.840Z",
+    "lastRunAt": "2026-10-20T17:52:40.104Z",
     "bootstrapComplete": true,
     "checkedGames": 195673,
     "discovered": 0,
     "refreshed": 0,
     "failures": 0,
     "requests": 1,
-    "unresolvedReleased": 0,
+    "unresolvedReleased": 2,
     "deniedReleased": 2077
   },
   "steamArchive": {
     "format": "steam-feature-atlas-raw-v2",
-    "file": "steam-raw.19a325820c147d19.jsonl.zst",
-    "sha256": "19a325820c147d194ff16490a0c2df68792a3d03be675fdb331f362fb49901a7",
-    "bytes": 358427577,
+    "file": "steam-raw.326b8b52421bf7d7.jsonl.zst",
+    "sha256": "326b8b52421bf7d7f299bb54ed55cab42d83cb06fe76adfd97582190583e54d5",
+    "bytes": 358274925,
     "uncompressedBytes": 2549000003,
     "apps": 199579,
     "successfulApps": 196262,
