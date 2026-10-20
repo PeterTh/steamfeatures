@@ -1,10 +1,12 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { createHash } from 'node:crypto';
-import { brotliCompressSync, brotliDecompressSync, gzipSync, gunzipSync, constants } from 'node:zlib';
+import { brotliCompress, brotliDecompressSync, gzip, gunzipSync, constants } from 'node:zlib';
+import { promisify } from 'node:util';
 import { CREDITS_FORMAT, CREDITS_MAGIC, CREDITS_MAX_BYTES, decodeGameCredits, validateCreditsDescriptor } from '../src/game-credits.mjs';
 
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
+const compressGzip = promisify(gzip), compressBrotli = promisify(brotliCompress);
 const compare = (a, b) => a < b ? -1 : a > b ? 1 : 0;
 
 export function normalizeGameCredits(record) {
@@ -66,8 +68,10 @@ export function encodeGameCredits(games, credits, snapshot) {
 export async function writeGameCredits(games, credits, directory, snapshot) {
   const bytes = encodeGameCredits(games, credits, snapshot), digest = hash(bytes);
   const file = `game-credits.${digest.slice(0, 16)}.bin`;
-  const gzip = gzipSync(bytes, { level: 9 });
-  const brotli = brotliCompressSync(bytes, { params: { [constants.BROTLI_PARAM_QUALITY]: 11, [constants.BROTLI_PARAM_SIZE_HINT]: bytes.length } });
+  const [gzip, brotli] = await Promise.all([
+    compressGzip(bytes, { level: 9 }),
+    compressBrotli(bytes, { params: { [constants.BROTLI_PARAM_QUALITY]: 11, [constants.BROTLI_PARAM_SIZE_HINT]: bytes.length } }),
+  ]);
   const descriptor = validateCreditsDescriptor({ format: CREDITS_FORMAT, snapshot, file, sha256: digest, bytes: bytes.length,
     gzip: { file: file + '.gz', sha256: hash(gzip), bytes: gzip.length }, brotli: { file: file + '.br', sha256: hash(brotli), bytes: brotli.length } }, snapshot);
   await mkdir(directory, { recursive: true });

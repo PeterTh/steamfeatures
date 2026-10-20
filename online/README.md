@@ -24,6 +24,8 @@ Before first publication, every released game must have known features, tags and
 
 After the initial import, `npm run build` fetches the latest bulk sources, discovers new releases and refreshes a rotating selection of existing games. Builds replace `dist/` only after success.
 
+Browser catalog and developer/publisher packages compress concurrently in Node's bounded native thread pool, retaining gzip level 9 and Brotli quality 11. Raw archives retain Zstandard level 19 and checksums. When `zstd` is available on `PATH` and the host has spare CPUs, archive compression uses up to three workers, reserving one CPU for the producer. Otherwise it uses Node's existing single-threaded encoder; no extra dependency is required for local builds. Browser packaging finishes before raw archive compression begins.
+
 ### Prepared sources and offline builds
 
 To pin the bulk inputs for reuse, save the result of [`fetchSources`](scripts/sources.mjs):
