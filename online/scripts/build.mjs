@@ -2,6 +2,7 @@ import { copyFile, cp, mkdir, mkdtemp, readdir, rm, writeFile, rename } from 'no
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { importCatalog } from './import-catalog.mjs';
+import { writeSiteTemplate } from './site-template.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const liveOutput = resolve(root, 'dist');
@@ -24,7 +25,7 @@ await importCatalog({ output, fixture: process.argv.includes('--fixture'), sourc
   steamDataFile: dataIndex >= 0 ? process.argv[dataIndex + 1] : undefined,
   ...(limitIndex >= 0 ? { steamLimit: Number(process.argv[limitIndex + 1]) } : {})
 });
-await copyFile(resolve(root, 'src/template.html'), resolve(output, 'index.html'));
+await writeSiteTemplate(output);
 for (const name of await readdir(resolve(root, 'src'))) {
   if (/\.(?:js|mjs|css|svg)$/.test(name)) await copyFile(resolve(root, 'src', name), resolve(output, name));
 }

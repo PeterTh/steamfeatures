@@ -73,6 +73,19 @@ function storeItems(response, method, { allowEmpty = false } = {}) {
   return response.store_items;
 }
 
+function requirementsBody(body, appid) {
+  const entry = body?.[appid];
+  if (!entry || typeof entry.success !== 'boolean') return body;
+  if (entry.success && (!entry.data || typeof entry.data !== 'object' || Array.isArray(entry.data))) {
+    return { [appid]: { success: true, data: entry.data ?? null } };
+  }
+  const data = {};
+  for (const key of ['pc_requirements', 'mac_requirements', 'linux_requirements']) {
+    if (Object.hasOwn(entry.data ?? {}, key)) data[key] = entry.data[key];
+  }
+  return { [appid]: { success: entry.success, ...(entry.success ? { data } : {}) } };
+}
+
 /** A serial, rate-limited client. The request budget counts HTTP attempts,
  * including retries, across all methods. The caller owns paging and persistence.
  * Deliberately returns raw items, including unavailable/failed item results.
@@ -82,24 +95,29 @@ export function createSteamClient({
   sleep = pause,
   now = Date.now,
   spacingMs = 2000,
+  throttleSpacingMs = spacingMs,
   maxRequests = 100,
   maxRetries = 2,
   timeoutMs = 30000,
   maxRetryDelayMs = 120000,
-  recordResponse
+  recordResponse,
+  onRequestFailure
 } = {}) {
   if (typeof fetchImpl !== 'function' || typeof sleep !== 'function' || typeof now !== 'function') {
     throw new Error('fetchImpl, sleep and now must be functions');
   }
   if (recordResponse !== undefined && typeof recordResponse !== 'function') throw new Error('recordResponse must be a function');
+  if (onRequestFailure !== undefined && typeof onRequestFailure !== 'function') throw new Error('onRequestFailure must be a function');
   integer(spacingMs, 'spacingMs', 0, 60000);
-  integer(maxRequests, 'maxRequests', 1, 10000);
+  integer(throttleSpacingMs, 'throttleSpacingMs', spacingMs, 60000);
+  integer(maxRequests, 'maxRequests', 1, 1000000);
   integer(maxRetries, 'maxRetries', 0, 5);
   integer(timeoutMs, 'timeoutMs', 1, 180000);
   integer(maxRetryDelayMs, 'maxRetryDelayMs', 1000, 3600000);
   let queue = Promise.resolve();
   let nextRequestAt = 0;
   let cooldownError = null;
+  let activeSpacingMs = spacingMs;
   const counters = { requests: 0, retries: 0 };
 
   function enqueue(operation) {
@@ -108,9 +126,10 @@ export function createSteamClient({
     return result;
   }
 
-  async function request(method, input) {
-    const url = new URL(`${method}/v1/`, API_BASE);
-    url.searchParams.set('input_json', JSON.stringify(input));
+  async function request(method, input, { appDetails = false } = {}) {
+    const url = new URL(appDetails ? 'https://store.steampowered.com/api/appdetails' : `${method}/v1/`, API_BASE);
+    if (appDetails) for (const [key, value] of Object.entries(input)) url.searchParams.set(key, value);
+    else url.searchParams.set('input_json', JSON.stringify(input));
     for (let attempt = 0; ; attempt++) {
       if (cooldownError) throw cooldownError;
       if (counters.requests >= maxRequests) throw new SteamRequestBudgetError(maxRequests);
@@ -119,10 +138,14 @@ export function createSteamClient({
       counters.requests++;
       if (attempt > 0) counters.retries++;
       let retryable = false;
+      let responseStatus = null;
       async function record(body, response) {
         if (!recordResponse) return;
         try {
-          await recordResponse({ method, input, body, status: response.status, resultCode: response.headers.get('x-eresult') });
+          // AppDetails' basic filter also returns descriptions/media. Retain only
+          // the requested requirements, including explicit empty platform blocks.
+          const retained = appDetails ? requirementsBody(body, input.appids) : body;
+          await recordResponse({ method, input, body: retained, status: response.status, resultCode: response.headers.get('x-eresult') });
         } catch (error) {
           // Disk failures must stop the run, never cause network retries or
           // checkpoint success for a response that has not been preserved.
@@ -146,6 +169,7 @@ export function createSteamClient({
           error.steamRequestFailure = true;
           throw error;
         }
+        responseStatus = response.status;
         if (!response.ok) {
           if (recordResponse) {
             let body;
@@ -170,29 +194,59 @@ export function createSteamClient({
         // Archive before interpreting anything: new fields and schema failures
         // must remain available for offline inspection and future importers.
         await record(body, response);
-        if (resultCode && resultCode !== '1') throw new Error(`Steam ${method}: result ${resultCode}`);
+        if (resultCode && resultCode !== '1') {
+          const error = new Error(`Steam ${method}: result ${resultCode}`);
+          error.resultCode = Number(resultCode);
+          throw error;
+        }
+        if (appDetails) return requirementsBody(body, input.appids);
         if (!body?.response || typeof body.response !== 'object' || Array.isArray(body.response)) {
           throw new Error(`Steam ${method}: malformed response envelope`);
         }
         return body.response;
       } catch (error) {
+        if (error.status === 429) activeSpacingMs = Math.max(activeSpacingMs, throttleSpacingMs);
         if (retryable && error.retryAfterMs !== null && error.retryAfterMs !== undefined) {
           nextRequestAt = Math.max(nextRequestAt, now() + error.retryAfterMs);
           if (error.retryAfterMs > maxRetryDelayMs) cooldownError = error;
         }
-        if (!retryable || attempt >= maxRetries) throw error;
         const backoffMs = Math.max(5000 * (2 ** attempt), error.retryAfterMs ?? 0);
         // A very long Retry-After stops this run instead of retrying prematurely.
-        if (backoffMs > maxRetryDelayMs) throw error;
-        nextRequestAt = Math.max(nextRequestAt, now() + backoffMs);
+        const willRetry = retryable && attempt < maxRetries && backoffMs <= maxRetryDelayMs;
+        if (willRetry) nextRequestAt = Math.max(nextRequestAt, now() + backoffMs);
+        if (onRequestFailure) {
+          try {
+            await onRequestFailure({ at: new Date(now()).toISOString(), method, appid: input.appid ?? input.appids ?? null,
+              attempt: attempt + 1, request: counters.requests, error: error.message, errorName: error.name,
+              status: error.status ?? responseStatus, resultCode: error.resultCode ?? null, retryable, willRetry,
+              retryAfterMs: error.retryAfterMs ?? null, retryDelayMs: willRetry ? backoffMs : null, spacingMs: activeSpacingMs });
+          } catch (logError) {
+            throw Object.assign(new Error(`Could not record Steam request failure: ${logError.message}`, { cause: logError }),
+              { status: error.status ?? responseStatus, retryAfterMs: error.retryAfterMs });
+          }
+        }
+        if (!willRetry) throw error;
       } finally {
-        nextRequestAt = Math.max(nextRequestAt, now() + spacingMs);
+        nextRequestAt = Math.max(nextRequestAt, now() + activeSpacingMs);
       }
     }
   }
 
   return {
     get stats() { return { ...counters }; },
+    get spacingMs() { return activeSpacingMs; },
+
+    async getGameAchievements(appid, { hashOnly = false } = {}) {
+      integer(appid, 'appid', 1, 0xffffffff);
+      if (typeof hashOnly !== 'boolean') throw new Error('hashOnly must be a boolean');
+      return enqueue(() => request('IPlayerService/GetGameAchievements', { appid, language: STEAM_CONTEXT.language,
+        ...(hashOnly ? { hash_only: true } : {}) }));
+    },
+
+    async getRequirements(appid) {
+      integer(appid, 'appid', 1, 0xffffffff);
+      return enqueue(() => request('Store/AppDetails', { appids: appid, filters: 'basic', l: STEAM_CONTEXT.language, cc: STEAM_CONTEXT.country_code }, { appDetails: true }));
+    },
 
     async getItems(appids) {
       if (!Array.isArray(appids)) throw new Error('appids must be an array');

@@ -7,5 +7,11 @@ https://codeberg.org/shinmera/promptfont/releases/download/v1.15/promptfont.zip
 WOFF2 SHA-256: 81cf70b36008af0e802de2cca5b8d78fd6e9584f753e89d8d893bbb917480b7d
 Size: 82,856 bytes.
 
+The column-icons.svg symbols dualshock-controller-support,
+dualsense-controller-support and steam-os preserve vector outlines from the
+U+2440, U+2441 and U+E00B glyphs, respectively. Outlines are scaled and centered
+in a 24-unit SVG view box. The original font file is unchanged. The site uses
+these SVG symbols directly and no longer loads PromptFont as a web font.
+
 Licensed under the SIL Open Font License 1.1; see PromptFont-LICENSE.txt.
 Included trademarks remain the property of their respective owners.

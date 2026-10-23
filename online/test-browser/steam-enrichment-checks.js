@@ -105,8 +105,8 @@ async (page, options = {}) => {
   check('The combined Deck column can be highlighted and shared', (await view()).highlight === 'steam-deck' && new URL(page.url()).searchParams.get('highlight') === 'steam-deck');
   await page.keyboard.press('Escape');
   await page.goto(base + '?hw=1'); await settled();
-  await page.evaluate(() => document.fonts.ready);
-  check('Embedded PromptFont loads its controller, headset and Steam glyphs', await page.evaluate(() => [...document.fonts].some(font => font.family === 'PromptFont' && font.status === 'loaded') && ['\u243c', '\u{1f57b}', '\ue00b'].every(glyph => document.fonts.check('20px PromptFont', glyph))));
+  await page.waitForFunction(() => [...document.querySelectorAll('.feature-head .icon')].every(icon => icon instanceof SVGSVGElement && icon.getBBox().width > 0));
+  check('All headings use rendered SVG column symbols', await page.locator('.feature-head .icon').evaluateAll(nodes => nodes.every(node => node.querySelector('use')?.getAttribute('href').startsWith('#column-'))));
   check('Hardware headings use four distinct icons', await page.locator('#feature-10019 .icon,#feature-10029 .icon,#feature-10039 .icon,#feature-10049 .icon').evaluateAll(nodes => nodes.length === 4 && new Set(nodes.map(node => node.outerHTML)).size === 4));
   await screenshot('hardware-desktop');
   for (const width of [320, 390, 768, 1440]) {

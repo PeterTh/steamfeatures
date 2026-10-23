@@ -26,6 +26,12 @@ After the initial import, `npm run build` fetches the latest bulk sources, disco
 
 Browser catalog and developer/publisher packages compress concurrently in Node's bounded native thread pool, retaining gzip level 9 and Brotli quality 11. Raw archives retain Zstandard level 19 and checksums. When `zstd` is available on `PATH` and the host has spare CPUs, archive compression uses up to three workers, reserving one CPU for the producer. Otherwise it uses Node's existing single-threaded encoder; no extra dependency is required for local builds. Browser packaging finishes before raw archive compression begins.
 
+### Column icons
+
+`src/column-icons.svg` contains one distinct 24-unit SVG symbol per table column, keyed by the feature's stable key (or the combined hardware target key). The build embeds this sprite once in `index.html`; table, feature picker and compatibility dialogs use local references without icon-file or icon-font requests. Most shapes retain the original line artwork. PlayStation and SteamOS outlines come from the bundled PromptFont; attribution remains in `fonts/PromptFont-NOTICE.txt`.
+
+Add a dedicated symbol when adding a column. The column-icon regression check requires complete coverage and unique artwork, including optional columns. General navigation and service logos remain inline UI symbols in `app.js`.
+
 ### Prepared sources and offline builds
 
 To pin the bulk inputs for reuse, save the result of [`fetchSources`](scripts/sources.mjs):
@@ -61,6 +67,26 @@ Builds extract the listed developer/publisher names from the archived StoreBrows
 The browser loads this file in its full-catalog worker after the initial and background catalog files. It attaches a credit lookup without rebuilding the feature index. The Developers panel has separate case-insensitive substring fields, combined with AND; shared links use `dev` and `pub`. Missing credits cannot satisfy an active role filter. Cards display both roles once the file is ready; clicking an individual name sets that role's filter, or clears it if the name is highlighted, and keeps the card open.
 
 The 198,879-game local snapshot produces 3,689,891 raw bytes, 1,964,859 gzip bytes and 1,715,903 Brotli bytes. The catalog downloads themselves are unchanged. File details appear in Data & counting rules after loading.
+
+### Achievement Sets
+
+Achievement Sets appears beside Steam Achievements, uses the `SET` URL code, and adds one score point. Additional nonempty public sets qualify; Steam's automatic default group does not. Require/exclude filters use the same known-data rules as other features: unavailable or unchecked schemas cannot satisfy an exclusion.
+
+Production refreshes bootstrap from `data/achievement-state.json.gz`, restore the published `achievementState` and merge any newer SQLite checkpoint. New games advertising achievements are checked first, followed by newly released or interrupted checks, then older games on a best-effort, oldest-first basis. Successful results become eligible again after seven days. Unavailable released/upcoming games normally retry after seven/thirty days; failures use per-game backoff. Freshly released games can bypass an older unavailable result's ordinary schedule.
+
+The separate serial achievement phase defaults to **2,000 HTTP attempts and 30 minutes per UTC day**, shared across repeated builds. It uses a one-second post-response pause, raises that minimum to 1.5 seconds on HTTP 429, and persists Retry-After/cooldowns. Existing StoreBrowse/PICS batches and their five-second pacing are unchanged. Hash-only checks avoid downloading unchanged older schemas; changed hashes require a full validated response before any flag changes. Hash checks, full responses, retries and service controls all count against the same achievement budget. The workflow allows 90 minutes overall so this phase has room alongside the existing import, compression and verification work.
+
+Transport or schema failures end this optional phase while the catalog builds from saved usable flags. Unavailable or failed requests cannot erase earlier successful data. Requests and outcomes are checkpointed separately from the frozen supplemental collection; publisher requirements are not queried. Full returned responses are retained in `.cache/steam-achievements/responses/`, cached and uploaded with the workflow's response-journal artifact. PID locks are local and excluded from the Actions cache.
+
+The compressed `achievementState` is a maintenance file containing flags, schema identities, observation times and scheduling state; visitors do not download it. The checked-in `data/achievement-sets.json` projection supports fixture and bulk-only offline builds. Both paths apply after StoreBrowse/PICS enrichment and pin their source checksum in provenance. Visitors receive only the feature flag and its known-data state in the existing catalog files; full schemas and requirements are not added to browser downloads. Production verification checks that every projected flag agrees with its persisted checkpoint.
+
+After an explicitly collected supplement is complete, regenerate this build input offline:
+
+```sh
+npm run project:achievement-sets
+```
+
+The command independently verifies `.cache/steam-supplement/archive.json` and its archive before generating the compressed seed and lookup. Use repeated `--directory <path>` options to merge completed collections, including an achievement-only delta; the source databases are opened read-only. Existing seed results merge by observation time without losing later usable data. Review and commit both generated seed files with the associated source changes; no separate upload of the full raw supplement is required.
 
 ## Publish to GitHub Pages
 
@@ -100,6 +126,9 @@ Normal workflow runs require a completed published catalog. If it is missing or 
 | `PAGES_BASE_URL` | Set by the workflow | HTTPS deployment used to recover published data and compare coverage |
 | `--steam-state <file>` | None | Initial checkpoint when no published state is available |
 | `STEAM_ALLOW_BOOTSTRAP` | `0` in Actions | Prevents automatic full backfills in normal workflow runs |
+| `STEAM_ACHIEVEMENT_REQUEST_LIMIT` | `2000` | Achievement HTTP attempts per UTC day, including retries and controls; `0` disables requests |
+| `STEAM_ACHIEVEMENT_TIME_LIMIT_MS` | `1800000` | Achievement phase time allowance per UTC day, shared across repeated builds |
+| `STEAM_ACHIEVEMENT_REQUEST_SPACING_MS` | `1000` | Minimum pause after achievement responses; persisted throttle fallback can raise it |
 
 New-release discovery has a separate allowance. Existing games are requested in batches of 100; incremental runs allow at most 100 HTTP attempts, including retries. Discovery and refresh progress are checkpointed. Rate limits use bounded retries; persistent throttling or a long `Retry-After` stops the run.
 

@@ -105,6 +105,41 @@ test('long Retry-After ends the client run instead of retrying early', async () 
   assert.deepEqual(timer.waits, []);
 });
 
+test('failure telemetry retains HTTP, transport and API causes without treating generic failures as throttling', async () => {
+  const timer = clock();
+  const failures = [];
+  let calls = 0;
+  const client = createSteamClient({ ...timer, spacingMs: 1000, throttleSpacingMs: 1500,
+    onRequestFailure: event => failures.push(event), fetchImpl: async () => {
+      if (++calls === 1) return new Response('', { status: 503 });
+      if (calls === 2) throw new TypeError('temporary network failure');
+      if (calls === 4) return new Response(JSON.stringify({ response: {} }), { headers: { 'x-eresult': '2' } });
+      return tagResponse();
+    } });
+  await client.getTagList();
+  await assert.rejects(client.getTagList(), /result 2/);
+  assert.deepEqual(failures.map(event => [event.status, event.resultCode, event.willRetry, event.retryDelayMs]),
+    [[503, null, true, 5000], [null, null, true, 10000], [200, 2, false, null]]);
+  assert.equal(failures[1].error, 'temporary network failure');
+  assert.equal(failures[1].errorName, 'TypeError');
+  assert.deepEqual(failures.map(event => event.attempt), [1, 2, 1]);
+  assert.equal(client.spacingMs, 1000);
+});
+
+test('throttling fallback and Retry-After survive failure to write telemetry', async () => {
+  const timer = clock();
+  let calls = 0;
+  const client = createSteamClient({ ...timer, spacingMs: 1000, throttleSpacingMs: 1500,
+    onRequestFailure: async () => { throw new Error('disk full'); }, fetchImpl: async () => ++calls === 1
+      ? new Response('', { status: 429, headers: { 'Retry-After': '12' } }) : tagResponse() });
+  await assert.rejects(client.getTagList(), error => /Could not record.*disk full/.test(error.message)
+    && error.status === 429 && error.retryAfterMs === 12000);
+  assert.equal(client.stats.requests, 1, 'Logging failures must stop before any retry');
+  await client.getTagList();
+  assert.deepEqual(timer.waits, [12000]);
+  assert.equal(client.spacingMs, 1500);
+});
+
 test('Retry-After cooldown is preserved after a final failed attempt', async () => {
   const timer = clock();
   let count = 0;

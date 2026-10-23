@@ -28,7 +28,7 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
     permissions:
       contents: read
       pages: read
@@ -77,6 +77,8 @@ jobs:
             online/.cache/steam-refresh-state.json
             online/.cache/steam-responses
             online/.cache/steam-data/steam.sqlite*
+            online/.cache/steam-achievements/state.sqlite*
+            online/.cache/steam-achievements/responses/
           key: steam-refresh-v3-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
             steam-refresh-v3-
@@ -92,6 +94,9 @@ jobs:
           STEAM_REFRESH_LIMIT: '4000'
           STEAM_REQUEST_SPACING_MS: '5000'
           STEAM_ALLOW_BOOTSTRAP: '0'
+          STEAM_ACHIEVEMENT_REQUEST_SPACING_MS: '1000'
+          STEAM_ACHIEVEMENT_REQUEST_LIMIT: '2000'
+          STEAM_ACHIEVEMENT_TIME_LIMIT_MS: '1800000'
       - name: Save refresh progress, including failed runs
         if: ${{ always() && !inputs.bootstrap_release }}
         uses: actions/cache/save@v4
@@ -100,13 +105,17 @@ jobs:
             online/.cache/steam-refresh-state.json
             online/.cache/steam-responses
             online/.cache/steam-data/steam.sqlite*
+            online/.cache/steam-achievements/state.sqlite*
+            online/.cache/steam-achievements/responses/
           key: steam-refresh-v3-${{ github.run_id }}-${{ github.run_attempt }}
       - name: Preserve complete Steam response journals, including failed builds
         if: ${{ always() && !inputs.bootstrap_release }}
         uses: actions/upload-artifact@v4
         with:
           name: steam-responses-${{ github.run_id }}-${{ github.run_attempt }}
-          path: online/.cache/steam-responses/*.json.gz
+          path: |
+            online/.cache/steam-responses/*.json.gz
+            online/.cache/steam-achievements/responses/*.json.gz
           if-no-files-found: ignore
           include-hidden-files: true
           compression-level: 0

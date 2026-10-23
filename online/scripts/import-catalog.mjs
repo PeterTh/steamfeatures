@@ -1,4 +1,4 @@
-import { mkdir, readFile, readdir, writeFile, copyFile, rename } from 'node:fs/promises';
+import { mkdir, readFile, readdir, writeFile, copyFile, rename, rm } from 'node:fs/promises';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
@@ -6,7 +6,7 @@ import { gzipSync, gunzipSync } from 'node:zlib';
 import { features as baseFeatures } from '../src/features.mjs';
 import { LANGUAGES } from '../src/languages.mjs';
 import { attachCommunityTags, buildFeatureCatalog, encodeTagIndex, indexCommunityTags, indexReviews, normalizeGame, parseGenreDefinitions, readCategoryIds, selectAppRecord, summarizeCoverage, validateCoverage } from './normalize.mjs';
-import { fetchSources, readPreviousManifest, readPreviousRefreshState, readPreviousSteamArchive, readLocalSteamArchive, retainPreviousCatalog, sha256 } from './sources.mjs';
+import { fetchSources, readPreviousManifest, readPreviousRefreshState, readPreviousSteamArchive, readLocalSteamArchive, retainPreviousCatalog, sha256, download } from './sources.mjs';
 import { createSteamClient } from './steam-client.mjs';
 import { createSteamResponseArchive } from './steam-archive.mjs';
 import { buildSteamArchiveSnapshot } from './steam-archive-snapshot.mjs';
@@ -20,13 +20,19 @@ import { archiveRecord } from './steam-enrichment.mjs';
 import { createPicsClient } from './steam-pics.mjs';
 import { writeGameImages, retainGameImages } from './game-images.mjs';
 import { normalizeGameCredits } from './game-credits.mjs';
+import { readAchievementSets, applyAchievementSets } from './achievement-sets.mjs';
+import { AchievementRefreshStore, ACHIEVEMENT_STATE_SEED, decodeAchievementState, checkedAchievementState,
+  validateAchievementStateDescriptor, writeAchievementState, achievementStateIndex, refreshAchievementSets } from './achievement-refresh.mjs';
+import { acquireCollectionLock } from './collect-steam-supplement.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 export async function importCatalog({ sourceFile, output = resolve(ROOT, 'dist'), previousURL = process.env.PAGES_BASE_URL, fixture = false,
   refresh = !fixture && !sourceFile, bootstrap = false, steamLimit = Number(process.env.STEAM_REFRESH_LIMIT || 4000),
-  steamStateFile, steamClient, now, finalizeSteam = false, localPreviousDirectory, steamDataFile, checkpointFile = resolve(ROOT, '.cache/steam-refresh-state.json') } = {}) {
-  let steamData, picsClient;
+  steamStateFile, steamClient, now, finalizeSteam = false, localPreviousDirectory, steamDataFile, achievementSetsFile,
+  achievementStateFile = ACHIEVEMENT_STATE_SEED, achievementRefreshOptions,
+  checkpointFile = resolve(ROOT, '.cache/steam-refresh-state.json') } = {}) {
+  let steamData, picsClient, achievementStore, achievementLock, ownsAchievementLock = false;
   const imagePaths = new Map();
   const credits = new Map();
   try {
@@ -148,6 +154,48 @@ export async function importCatalog({ sourceFile, output = resolve(ROOT, 'dist')
       await writeFile(resolve(dirname(checkpointFile), 'steam-refresh-unresolved.json'), JSON.stringify(refreshAudit, null, 2));
     }
   }
+  const dataDirectory = resolve(output, 'data');
+  await mkdir(dataDirectory, { recursive: true });
+  let achievementState, achievementRefresh;
+  if ((!fixture && refresh && !achievementSetsFile) || achievementRefreshOptions) {
+    const achievementDirectory = resolve(dirname(checkpointFile), 'steam-achievements');
+    await mkdir(achievementDirectory, { recursive: true });
+    achievementLock = resolve(achievementDirectory, 'refresh.lock');
+    await acquireCollectionLock(achievementLock); ownsAchievementLock = true;
+    achievementStore = new AchievementRefreshStore(resolve(achievementDirectory, 'state.sqlite'));
+    achievementStore.merge(decodeAchievementState(await readFile(achievementStateFile)));
+    let previousAchievements = previous;
+    if (finalizeSteam && localPreviousDirectory) {
+      try { previousAchievements = { manifest: JSON.parse(await readFile(resolve(localPreviousDirectory, 'data/manifest.json'), 'utf8')) }; }
+      catch (error) { if (error.code !== 'ENOENT') throw error; }
+    }
+    const descriptor = previousAchievements?.manifest.achievementState;
+    if (descriptor) {
+      validateAchievementStateDescriptor(descriptor);
+      const bytes = previousAchievements.manifestURL
+        ? await download(new URL(descriptor.file, previousAchievements.manifestURL), { maximumBytes: descriptor.bytes })
+        : await readFile(resolve(localPreviousDirectory, 'data', descriptor.file));
+      achievementStore.merge(checkedAchievementState(bytes, descriptor));
+    }
+    if ((!finalizeSteam && !steamClient) || achievementRefreshOptions) {
+      achievementRefresh = await refreshAchievementSets({ store: achievementStore, games: normalizedGames, directory: achievementDirectory,
+        maxRequests: Number(process.env.STEAM_ACHIEVEMENT_REQUEST_LIMIT ?? 2000),
+        maxDurationMs: Number(process.env.STEAM_ACHIEVEMENT_TIME_LIMIT_MS ?? 1800000),
+        spacingMs: Number(process.env.STEAM_ACHIEVEMENT_REQUEST_SPACING_MS ?? 1000), ...achievementRefreshOptions });
+      console.log('Achievement refresh: ' + JSON.stringify(achievementRefresh));
+    }
+    const snapshot = achievementStore.snapshot(), index = achievementStateIndex(snapshot);
+    achievementState = await writeAchievementState(snapshot, dataDirectory);
+    normalizedGames = applyAchievementSets(normalizedGames, index);
+    const dates = Object.values(snapshot.apps).map(entry => entry.checkedAt).sort();
+    sources.achievementSets = { sha256: achievementState.sha256, sourceArchives: snapshot.sourceArchives,
+      checkedFrom: dates[0] ?? null, checkedThrough: dates.at(-1) ?? null,
+      knownGames: index.size, supportedGames: [...index.values()].filter(Boolean).length };
+  } else {
+    const achievementSets = await readAchievementSets(achievementSetsFile);
+    normalizedGames = applyAchievementSets(normalizedGames, achievementSets.index);
+    sources.achievementSets = achievementSets.source;
+  }
   const { tags, games } = attachCommunityTags(normalizedGames, tagsByApp);
   const coverage = summarizeCoverage(games, { tagCount: tags.length, sourceApps, redirectAliases: sourceApps - records.size, reviewRows: reviewIndex.size, sourceShards: names.length });
   validateCoverage(coverage, previous?.manifest.coverage, { fixture });
@@ -160,8 +208,6 @@ export async function importCatalog({ sourceFile, output = resolve(ROOT, 'dist')
   const hash = sha256(bytes);
   const filename = `catalog.${hash.slice(0, 16)}.json`;
   const current = { catalog: filename, compressedCatalog: `${filename}.gz`, sha256: hash, gzipSha256: sha256(compressed), bytes: bytes.length, gzipBytes: compressed.length, importedAt };
-  const dataDirectory = resolve(output, 'data');
-  await mkdir(dataDirectory, { recursive: true });
   await writeFile(resolve(dataDirectory, filename), bytes);
   await writeFile(resolve(dataDirectory, `${filename}.gz`), compressed);
   const { binary, progressive, gameCredits } = await writeCatalogPackages(catalog, dataDirectory, credits);
@@ -181,13 +227,17 @@ export async function importCatalog({ sourceFile, output = resolve(ROOT, 'dist')
   const retained = await retainPreviousCatalog(previous, dataDirectory, current);
   const gameImages = await writeGameImages(imagePaths, dataDirectory, new Set(games.map(game => game.id)));
   await retainGameImages(previous, dataDirectory, gameImages, { localPreviousDirectory });
-  const manifest = { version: 1, importedAt, fixture, current, previous: retained, sources, coverage, gameCredits, ...(gameImages ? { gameImages } : {}), ...(stateDescriptor ? { refreshState: stateDescriptor, refresh: refreshSummary } : {}), ...(rawDescriptor ? { steamArchive: rawDescriptor } : {}) };
+  const manifest = { version: 1, importedAt, fixture, current, previous: retained, sources, coverage, gameCredits,
+    ...(achievementState ? { achievementState, ...(achievementRefresh ? { achievementRefresh } : {}) } : {}),
+    ...(gameImages ? { gameImages } : {}), ...(stateDescriptor ? { refreshState: stateDescriptor, refresh: refreshSummary } : {}), ...(rawDescriptor ? { steamArchive: rawDescriptor } : {}) };
   await writeFile(resolve(dataDirectory, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n');
   await mkdir(resolve(output, 'licenses'), { recursive: true });
   await copyFile(resolve(blueboxDirectory, 'LICENSE'), resolve(output, 'licenses/BlueBoxWare-MIT.txt'));
   await copyFile(reviewLicenseFile, resolve(output, 'licenses/leinstay-GPL-3.0.txt'));
   await writeFile(resolve(output, 'licenses/NOTICE.txt'), 'Steam Feature Atlas uses BlueBoxWare/steamdb (MIT) and leinstay/steamdb (GPL-3.0).\nThe combined catalog is distributed under GPL-3.0. Upstream game names and other publisher material retain their owners\' rights.\nPinned source revisions and checksums: ../data/manifest.json\nTransformation source: https://github.com/peterth/steamfeatures/tree/main/online\nOriginal sources: https://github.com/BlueBoxWare/steamdb and https://github.com/leinstay/steamdb\n');
-  const lock = { version: 1, importedAt, fixture, sources, coverage, catalog: current, gameCredits, ...(gameImages ? { gameImages } : {}), ...(stateDescriptor ? { refreshState: stateDescriptor, refresh: refreshSummary } : {}), ...(rawDescriptor ? { steamArchive: rawDescriptor } : {}) };
+  const lock = { version: 1, importedAt, fixture, sources, coverage, catalog: current, gameCredits,
+    ...(achievementState ? { achievementState } : {}), ...(gameImages ? { gameImages } : {}),
+    ...(stateDescriptor ? { refreshState: stateDescriptor, refresh: refreshSummary } : {}), ...(rawDescriptor ? { steamArchive: rawDescriptor } : {}) };
   await writeFile(resolve(output, 'provenance-lock.json'), JSON.stringify(lock, null, 2) + '\n');
   console.log(JSON.stringify({ games: games.length, features: features.length,
     initialBrotliMB: +(current.progressive.priority.brotli.bytes / 1e6).toFixed(2),
@@ -196,7 +246,10 @@ export async function importCatalog({ sourceFile, output = resolve(ROOT, 'dist')
     browserGzipMB: +((current.progressive.priority.gzip.bytes + current.progressive.remainder.gzip.bytes) / 1e6).toFixed(2),
     ...(rawDescriptor ? { rawArchiveApps: rawDescriptor.apps, rawArchiveCompressedMB: +(rawDescriptor.bytes / 1048576).toFixed(2) } : {}), fixture, output }, null, 2));
   return { manifest, catalog };
-  } finally { picsClient?.close(); steamData?.close(); }
+  } finally {
+    picsClient?.close(); steamData?.close(); achievementStore?.close();
+    if (ownsAchievementLock) await rm(achievementLock, { force: true });
+  }
 }
 
 async function fixtureSources() {

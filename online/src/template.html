@@ -18,6 +18,7 @@
   <script type="module" src="./app.js"></script>
 </head>
 <body>
+  <!-- COLUMN_ICON_SPRITE -->
   <svg class="svg-defs" aria-hidden="true"><defs id="icon-defs"></defs></svg>
   <main>
     <header class="masthead">
@@ -132,13 +133,17 @@
         <p>Badges are publisher claims and may be incomplete or inaccurate. Missing Steam Cloud does not rule out another cloud-save service.</p>
         <p id="method-dates"></p>
         <p class="data-links">Sources: <a href="https://store.steampowered.com/" target="_blank" rel="noopener noreferrer">Steam</a> · <a href="https://github.com/BlueBoxWare/steamdb" target="_blank" rel="noopener noreferrer">BlueBoxWare/steamdb</a> (<a href="./licenses/BlueBoxWare-MIT.txt">MIT</a>) · <a href="https://github.com/leinstay/steamdb" target="_blank" rel="noopener noreferrer">leinstay/steamdb</a> (<a href="./licenses/leinstay-GPL-3.0.txt">GPL-3.0</a>) · <a href="./licenses/NOTICE.txt">Data attribution</a></p>
-        <p class="legal-note">Device icons: <a href="https://shinmera.com/promptfont" target="_blank" rel="noopener noreferrer">PromptFont by Shinmera (Yukari Hafner)</a> (<a href="./fonts/PromptFont-LICENSE.txt">SIL Open Font License</a>).<br>Steam and the Steam logo are trademarks of Valve Corporation. All other trademarks are property of their respective owners.<br>Steam Feature Atlas is not affiliated with Valve or Steam.</p>
+        <p class="legal-note">PlayStation and SteamOS icon outlines: <a href="https://shinmera.com/promptfont" target="_blank" rel="noopener noreferrer">PromptFont by Shinmera (Yukari Hafner)</a> (<a href="./fonts/PromptFont-LICENSE.txt">SIL Open Font License</a>).<br>Steam and the Steam logo are trademarks of Valve Corporation. All other trademarks are property of their respective owners.<br>Steam Feature Atlas is not affiliated with Valve or Steam.</p>
       </div>
     </details>
   </main>
   <dialog id="news-dialog" class="text-dialog" aria-labelledby="news-title">
     <div class="text-dialog-header"><h2 id="news-title">News</h2><button id="news-close" type="button" class="text-dialog-close" aria-label="Close News" autofocus><svg class="icon" aria-hidden="true" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div>
     <div id="news-content" class="text-dialog-content" tabindex="0" role="region" aria-label="News history">
+      <h3><time datetime="2026-10-23">2026-10-23</time></h3>
+      <ul>
+        <li>Added <a href="https://store.steampowered.com/news/app/593110/view/710037059469839141" target="_blank" rel="noopener noreferrer">Achievement Sets</a> as a new tracked feature, which counts any game that has at least one set beyond the default. Support adds one score point.</li>
+      </ul>
       <h3><time datetime="2026-10-20">2026-10-20</time></h3>
       <ul>
         <li>Improved review filtering: minimum and maximum review counts and positive-review percentages.</li>

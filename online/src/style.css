@@ -48,8 +48,6 @@ main{padding-top:1.3rem}.masthead{justify-content:flex-start;gap:1.25rem;flex-wr
 
 .method-content .legal-note{font-size:.75rem;line-height:1.5;margin-top:1rem;text-align:left}
 
-@font-face{font-family:PromptFont;src:url('./fonts/promptfont.woff2') format('woff2');font-weight:400;font-style:normal;font-display:block}
-.icon.prompt-icon{font-family:PromptFont;font-size:1.3rem;font-weight:400;font-style:normal;line-height:1;display:inline-grid;place-items:center;flex-shrink:0}
 .feature-cell .check,.rating-option .check,.legend .check{display:inline-grid;place-items:center;border-radius:.18rem;width:1.15rem;height:1.15rem;background:#193f37;color:#83edc8;font-size:.85rem;font-weight:600;line-height:1}
 .feature-cell .check.playable,.rating-option .check.playable,.legend .check.playable{background:#493e20;color:#f1d376}
 .feature-cell .check.negative,.rating-option .check.negative,.legend .check.negative{background:#4b252e;color:#ffadb9}

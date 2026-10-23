@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { brotliCompressSync, gzipSync } from 'node:zlib';
 import { verifyPublishedSite, verifySite } from '../scripts/verify-site.mjs';
+import { emptyAchievementState, writeAchievementState } from '../scripts/achievement-refresh.mjs';
 import { applyRefreshResults, createRefreshState } from '../scripts/refresh-state.mjs';
 import { retainPreviousCatalog, sha256 } from '../scripts/sources.mjs';
 import { writeBinaryCatalog, writeProgressiveCatalog } from '../scripts/catalog-package.mjs';
@@ -46,9 +47,9 @@ async function siteFixture(t, catalogInput) {
     refreshState: await auxiliary('refresh', state), steamArchive: { ...await auxiliary('steam-raw', archive), apps: 1, successfulApps: 1 } };
   const saveManifest = () => put('data/manifest.json', JSON.stringify(manifest));
   await saveManifest();
-  const saveProvenance = () => put('provenance-lock.json', JSON.stringify({ catalog: manifest.current, gameCredits: manifest.gameCredits, refreshState: manifest.refreshState, steamArchive: manifest.steamArchive }));
+  const saveProvenance = () => put('provenance-lock.json', JSON.stringify({ catalog: manifest.current, gameCredits: manifest.gameCredits, achievementState: manifest.achievementState, refreshState: manifest.refreshState, steamArchive: manifest.steamArchive }));
   await saveProvenance();
-  for (const name of ['index.html', 'app.js', 'style.css', 'query.mjs', 'features.mjs', 'feature-presentation.mjs', 'compatibility-details.mjs', 'extra-features.mjs', 'languages.mjs', 'game-images.mjs', 'game-credits.mjs', 'filter-worker.js', 'brand.svg', '.nojekyll',
+  for (const name of ['index.html', 'app.js', 'style.css', 'query.mjs', 'features.mjs', 'feature-presentation.mjs', 'compatibility-details.mjs', 'extra-features.mjs', 'languages.mjs', 'game-images.mjs', 'game-credits.mjs', 'filter-worker.js', 'brand.svg', 'column-icons.svg', '.nojekyll',
     'fonts/promptfont.woff2', 'fonts/PromptFont-LICENSE.txt', 'fonts/PromptFont-NOTICE.txt',
     'fonts/roboto-condensed-variable.woff', 'fonts/LICENSE.txt', 'fonts/NOTICE.txt', 'licenses/BlueBoxWare-MIT.txt', 'licenses/leinstay-GPL-3.0.txt', 'licenses/NOTICE.txt']) await put(name, 'Test fixture');
   const addBinary = async (binaryCatalog = catalog) => {
@@ -187,6 +188,31 @@ test('published preflight requires the actual completed state, not only the mani
   fixture.state.bootstrapComplete = true;
   fixture.manifest.refreshState = await fixture.auxiliary('refresh', fixture.state);
   assert.deepEqual(await verifyPublishedSite('https://example.github.io/steamfeatures/'), { games: 50000, bootstrapComplete: true });
+});
+
+test('deployment verifies persisted achievement flags and requires the matching checkpoint in provenance', async t => {
+  for (const includeFlag of [true, false]) {
+    const state = { ...emptyAchievementState(), apps: { 10: { checkedAt: '2026-10-23T12:00:00Z', successfulAt: '2026-10-23T12:00:00Z',
+      outcome: 'success', hasSets: true, schemaVersion: 1, schemaHash: 123 } } };
+    const packedHash = sha256(gzipSync(Buffer.from(JSON.stringify(state)), { level: 9 }));
+    const catalog = { version: 1, fixture: false, coverage: { games: 1 }, refresh: { bootstrapComplete: true },
+      sources: { achievementSets: { sha256: packedHash } }, tags: [],
+      features: [{ id: 2, key: 'single-player', name: 'Single-player', weight: 1 },
+        { id: 10002, key: 'achievement-sets', name: 'Achievement Sets', knowledgeGroup: 'achievement-sets', weight: 1 }],
+      games: [{ id: 10, name: 'Example', featureIds: includeFlag ? [2, 10002] : [2], featureDataKnown: true,
+        knownFeatureGroups: ['achievement-sets'] }] };
+    const fixture = await siteFixture(t, catalog);
+    fixture.manifest.achievementState = await writeAchievementState(state, join(fixture.directory, 'data'));
+    await fixture.saveManifest(); await fixture.saveProvenance();
+    if (!includeFlag) await assert.rejects(verifySite(fixture.directory, { minimumGames: 1 }), /checkpoint does not match game/);
+    else {
+      await verifySite(fixture.directory, { minimumGames: 1 });
+      const provenance = JSON.parse(await readFile(join(fixture.directory, 'provenance-lock.json'), 'utf8'));
+      delete provenance.achievementState;
+      await fixture.put('provenance-lock.json', JSON.stringify(provenance));
+      await assert.rejects(verifySite(fixture.directory, { minimumGames: 1 }), /Provenance lock/);
+    }
+  }
 });
 
 test('binary deployment verification compares game and tag semantics independent of row order', async t => {

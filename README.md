@@ -36,7 +36,7 @@ Open http://127.0.0.1:4178/. Edit files in `online/src/`; `online/dist/` is gene
 
 Generated catalogs (`online/dist/`), download/checkpoint caches (`online/.cache/`), and screenshots/reports (`online/test-results/`) are ignored.
 
-The [Steam data collection reference](docs/steam-data.md) records collected fields, compatibility semantics, fallback behavior, storage, collection commands and the optional future requirements pass.
+The [Steam data collection reference](docs/steam-data.md) records collected fields, compatibility semantics, fallback behavior, storage, and the separate achievement-schema and system-requirements collection pass.
 
 ## License
 
