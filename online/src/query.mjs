@@ -9,7 +9,7 @@ export const DEFAULT_QUERY = Object.freeze({
   q: '', developer: '', publisher: '', has: Object.freeze([]), not: Object.freeze([]),
   hasTags: Object.freeze([]), notTags: Object.freeze([]), minReviews: 20, maxReviews: null, minRating: null, maxRating: null,
   hasLanguages: Object.freeze([]), notLanguages: Object.freeze([]),
-  includeAccessibility: false, includeMultiplayer: false, includeHardware: false,
+  includeAccessibility: false, includeMultiplayer: false, includeHardware: false, includeRemotePlay: false,
   compatibility: Object.freeze(Object.fromEntries(compatibilityTargets.map(target => [target.key, 'ignore']))),
   release: 'released', releaseFrom: '', releaseTo: '', sort: 'score-desc', page: 1,
 });
@@ -209,6 +209,7 @@ export function normalizeQuery(input = {}, features, tags = [], languages = []) 
     includeAccessibility: booleanValue(source.includeAccessibility, DEFAULT_QUERY.includeAccessibility, 'Accessibility'),
     includeMultiplayer: booleanValue(source.includeMultiplayer, DEFAULT_QUERY.includeMultiplayer, 'Multiplayer'),
     includeHardware: booleanValue(source.includeHardware, DEFAULT_QUERY.includeHardware, 'Steam hardware'),
+    includeRemotePlay: booleanValue(source.includeRemotePlay, DEFAULT_QUERY.includeRemotePlay, 'Remote Play'),
     compatibility: compatibilityFilters(source.compatibility),
     release, releaseFrom, releaseTo, sort,
     page: wholeNumber(source.page, DEFAULT_QUERY.page, 1, 'Page'),
@@ -231,7 +232,7 @@ export function parseQuery(search = '', features, tags = [], languages = []) {
     maxReviews: single('maxReviews'), minRating: single('minRating'), maxRating: single('maxRating'),
     hasTags: params.getAll('tag'), notTags: params.getAll('notTag'),
     hasLanguages: split('lang'), notLanguages: split('notLang'),
-    includeEarlyAccess: single('ea'), includeAccessibility: single('a11y'), includeMultiplayer: single('mp'), includeHardware: single('hw'),
+    includeEarlyAccess: single('ea'), includeAccessibility: single('a11y'), includeMultiplayer: single('mp'), includeHardware: single('hw'), includeRemotePlay: single('rp'),
     compatibility: Object.fromEntries(compatibilityTargets.map(target => [target.key, single(target.parameter)])),
     release: single('release'), releaseFrom: single('releaseFrom'), releaseTo: single('releaseTo'),
     sort: single('sort'), page: single('page'),
@@ -257,6 +258,7 @@ export function serializeQuery(input, features, tags = [], languages = []) {
   if (query.includeAccessibility) params.set('a11y', '1');
   if (query.includeMultiplayer) params.set('mp', '1');
   if (query.includeHardware) params.set('hw', '1');
+  if (query.includeRemotePlay) params.set('rp', '1');
   for (const target of compatibilityTargets) {
     if (query.compatibility[target.key] !== 'ignore') params.set(target.parameter, query.compatibility[target.key]);
   }
@@ -306,7 +308,7 @@ export function prepareCatalog(catalog) {
   if (preparedCatalogs.has(catalog)) return preparedCatalogs.get(catalog);
   const index = featureIndex(catalog.features);
   const features = presentationFeatures(catalog.features);
-  const countedIds = new Set(features.map(feature => feature.id));
+  const countedFeatures = new Map(features.map(feature => [feature.id, feature]));
   const tags = catalog.tags === undefined ? [] : catalog.tags;
   const tagsByName = tagIndex(tags);
   const decodedTagIds = decodeTagIndex(catalog, tags.length);
@@ -341,15 +343,15 @@ export function prepareCatalog(catalog) {
       profile.count++;
     }
     const known = game.featureDataKnown === true;
-    // Precompute all eight toggle combinations once; sorting never sums features.
-    const counts = Array(8).fill(known ? 0 : null);
-    const scores = Array(8).fill(known ? 0 : null);
+    // Precompute all sixteen toggle combinations once; sorting never sums features.
+    const counts = Array(16).fill(known ? 0 : null);
+    const scores = Array(16).fill(known ? 0 : null);
     if (known) for (const id of featureIds) {
-      if (!countedIds.has(id)) continue;
-      const feature = index.byId.get(id);
+      const feature = countedFeatures.get(id);
+      if (!feature) continue;
       const weight = featureWeight(game, feature);
-      const group = (feature.accessibility ? 1 : 0) | (feature.multiplayer ? 2 : 0) | (feature.hardware ? 4 : 0);
-      for (let mask = 0; mask < 8; mask += 1) if ((group & mask) === group) {
+      const group = (feature.accessibility ? 1 : 0) | (feature.multiplayer ? 2 : 0) | (feature.hardware ? 4 : 0) | (feature.remotePlay ? 8 : 0);
+      for (let mask = 0; mask < 16; mask += 1) if ((group & mask) === group) {
         counts[mask] += 1;
         scores[mask] += weight;
       }
@@ -413,11 +415,11 @@ export function runQuery(catalog, input = DEFAULT_QUERY, { libraryRules = [] } =
   const releaseFrom = resolveReleaseBound(query.releaseFrom);
   const releaseTo = resolveReleaseBound(query.releaseTo, true);
   const releaseStatus = ['released-ea', 'early-access'].includes(query.release) ? 'released' : query.release;
-  const mask = (query.includeAccessibility ? 1 : 0) | (query.includeMultiplayer ? 2 : 0) | (query.includeHardware ? 4 : 0);
+  const mask = (query.includeAccessibility ? 1 : 0) | (query.includeMultiplayer ? 2 : 0) | (query.includeHardware ? 4 : 0) | (query.includeRemotePlay ? 8 : 0);
   const count = row => row.counts[mask];
   const score = row => row.scores[mask];
   const visibleFeatures = featureColumns(prepared.features).filter(feature =>
-    (query.includeAccessibility || !feature.accessibility) && (query.includeMultiplayer || !feature.multiplayer) && (query.includeHardware || !feature.hardware));
+    (query.includeAccessibility || !feature.accessibility) && (query.includeMultiplayer || !feature.multiplayer) && (query.includeHardware || !feature.hardware) && (query.includeRemotePlay || !feature.remotePlay));
   const matches = prepared.games.filter(row => {
     const game = row.game;
     if (libraryRules.some(rule => rule.appIds.has(game.id) === rule.exclude)) return false;

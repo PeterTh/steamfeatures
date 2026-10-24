@@ -42,9 +42,10 @@
         <div class="filter-row">
           <div class="count-controls" role="group" aria-label="Count optional features">
             <span class="picker-label">Count:</span>
-            <label class="toggle-control" title="Include multiplayer modes, Remote Play Together, turn notifications, and chat accessibility in columns, counts, and scores."><input id="multiplayer" type="checkbox"><span class="switch" aria-hidden="true"></span><span>Multiplayer</span></label>
-            <label class="toggle-control" title="Include accessibility features in columns, counts, and scores."><input id="accessibility" type="checkbox"><span class="switch" aria-hidden="true"></span><span>Accessibility</span></label>
+            <label class="toggle-control" title="Include multiplayer modes, turn notifications, and chat accessibility in columns, counts, and scores."><input id="multiplayer" type="checkbox"><span class="switch" aria-hidden="true"></span><span>Multiplayer</span></label>
             <label class="toggle-control" title="Include one compatibility rating each for Steam Deck, Steam Machine, Steam Frame and SteamOS in columns, counts and scores."><input id="hardware" type="checkbox"><span class="switch" aria-hidden="true"></span><span>Compatibility</span></label>
+            <label class="toggle-control" title="Include Remote Play and GeForce NOW in columns, counts and scores."><input id="remote-play" type="checkbox"><span class="switch" aria-hidden="true"></span><span>Remote Play</span></label>
+            <label class="toggle-control" title="Include accessibility features in columns, counts, and scores."><input id="accessibility" type="checkbox"><span class="switch" aria-hidden="true"></span><span>Accessibility</span></label>
           </div>
           <button id="reset" type="button" class="reset-button">Reset filters</button>
         </div>
@@ -162,6 +163,7 @@
       <h3><time datetime="2026-10-24">2026-10-24</time></h3>
       <ul>
         <li>Added user library filtering. This allows you to show only games in your Steam library (or that of someone else, if they share their json file). Everything is still entirely browser-local.</li>
+        <li>Made the "Remote Play" category toggle-able and off by default. I think it was substantially overvalued in the default score, especially since many games seem to be rather random about what they claim to support.</li>
       </ul>
       <h3><time datetime="2026-10-23">2026-10-23</time></h3>
       <ul>

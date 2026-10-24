@@ -14,8 +14,10 @@ async (page, options = {}) => {
     const manifest = await fetch('./data/manifest.json').then(response => response.json());
     const catalog = await fetch('./data/' + manifest.current.catalog).then(response => response.json());
     const { presentationFeatures, featureColumns, compatibilityTargets } = await import('./feature-presentation.mjs');
+    const { runQuery } = await import('./query.mjs');
     const example = id => catalog.games.find(game => game.featureDataKnown && game.featureIds.includes(id));
     return { features: presentationFeatures(catalog.features), columns: featureColumns(catalog.features), targets: compatibilityTargets,
+      defaultColumns: runQuery(catalog).columns.length,
       examples: Object.fromEntries([35, 46, 10000, 10001, 10010, 10011, 10012, 10013].map(id => [id, example(id)])),
       achievements: catalog.games.find(game => game.achievementCount > 0),
       ratingCounts: Object.fromEntries(compatibilityTargets.flatMap(target => target.ratings.map(rating => [rating.id, catalog.games.filter(game => game.featureIds.includes(rating.id)).length]))),
@@ -24,12 +26,14 @@ async (page, options = {}) => {
   });
   check('Collected examples cover negative features, cloud flags and all Deck ratings', Object.values(catalog.examples).every(Boolean));
   const initial = await view();
-  check('Hardware ratings are opt-in by default', !initial.filters.includeHardware && initial.featureColumns === 30 && await page.locator('#feature-10019').count() === 0);
+  check('Hardware and Remote Play are opt-in by default', !initial.filters.includeHardware && !initial.filters.includeRemotePlay && initial.featureColumns === catalog.defaultColumns && await page.locator('#feature-10019,#feature-41').count() === 0);
+  await page.locator('#remote-play').check(); await settled();
   const ordinaryIds = await page.locator('#matrix-head [data-tip="feature"]').evaluateAll(nodes => nodes.map(node => Number(node.dataset.id)));
   check('Dynamic Cloud Sync follows Cloud saves', ordinaryIds[ordinaryIds.indexOf(23) + 1] === 10001);
   check('GeForce NOW is fourth in Remote Play and generic cloud streaming is hidden', ordinaryIds.slice(ordinaryIds.indexOf(41), ordinaryIds.indexOf(41) + 4).join(',') === '41,42,43,46' && !ordinaryIds.includes(45));
+  await page.locator('#remote-play').uncheck(); await settled();
   await page.locator('#hardware').check(); await settled();
-  check('Hardware toggle adds exactly four columns without filtering games', (await view()).featureColumns === 34 && (await view()).matching === initial.matching);
+  check('Hardware toggle adds exactly four columns without filtering games', (await view()).featureColumns === catalog.defaultColumns + 4 && (await view()).matching === initial.matching);
   check('Each hardware target has one column and details have no columns', await page.locator('#matrix-head [data-tip="feature"]').evaluateAll((nodes, allowed) => nodes.every(node => allowed.includes(Number(node.dataset.id))), catalog.columns.map(column => column.id)));
   check('Hardware display state has a shared URL', new URL(page.url()).searchParams.get('hw') === '1');
   await page.reload(); await settled();
@@ -69,7 +73,7 @@ async (page, options = {}) => {
     const game = catalog.examples[id]; await openGame(game);
     const cell = page.locator(`tr[data-game-id="${game.id}"] td[data-feature="${id}"]`);
     check(`Negative feature ${id} uses a red minus badge`, await cell.locator('.check.negative').innerText() === '−' && await cell.locator('.check').evaluate(node => getComputedStyle(node).backgroundColor === 'rgb(75, 37, 46)'));
-    const ordinary = catalog.features.filter(feature => !feature.hardware && !feature.accessibility && !feature.multiplayer);
+    const ordinary = catalog.features.filter(feature => !feature.hardware && !feature.accessibility && !feature.multiplayer && !feature.remotePlay);
     const score = ordinary.filter(feature => game.featureIds.includes(feature.id)).reduce((sum, feature) => sum + feature.weight, 0);
     check(`Negative feature ${id} retains its score penalty`, (await view()).games.find(row => row.id === game.id).score === score);
     await page.locator(`#feature-${id} button`).click();
@@ -78,7 +82,7 @@ async (page, options = {}) => {
   }
   await screenshot('negative-feature');
   for (const [id, key] of [[46, 'geforce-now'], [10001, 'dynamic-cloud-sync']]) {
-    const game = catalog.examples[id]; await openGame(game, '&has=' + key);
+    const game = catalog.examples[id]; await openGame(game, '&has=' + key + (id === 46 ? '&rp=1' : ''));
     check(`${key} is independently filterable and listed`, (await view()).filters.has.includes(id) && await page.locator(`tr[data-game-id="${game.id}"] td[data-feature="${id}"]`).getAttribute('data-supported') === 'true');
   }
   await openGame(catalog.achievements);

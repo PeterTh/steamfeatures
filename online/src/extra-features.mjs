@@ -1,3 +1,5 @@
+export const FEATURE_GROUP_ORDER = ['Play modes', 'Input', 'Steam features', 'Creation', 'Features?', 'Display & VR', 'Steam hardware', 'Remote Play', 'Cloud streaming', 'Accessibility'];
+
 const feature = (id, key, name, group, icon, short, description, knowledgeGroup, weight = 1, hardware = false, steamIds = []) =>
   ({ id, key, name, group, icon, short, description, knowledgeGroup, weight, hardware, steamIds, accessibility: false, multiplayer: false });
 
@@ -10,7 +12,7 @@ export const hardwareDevices = [
 
 export const extraFeatures = [
   feature(45, 'cloud-streaming', 'Cloud streaming', 'Cloud streaming', 'cloud', 'STR', 'Supports cloud streaming.', 'cloud-streaming', 1, false, [45]),
-  feature(46, 'geforce-now', 'NVIDIA GeForce NOW', 'Cloud streaming', 'cloud', 'GFN', 'Supports cloud streaming through NVIDIA GeForce NOW.', 'cloud-streaming', 1, false, [46]),
+  feature(46, 'geforce-now', 'NVIDIA GeForce NOW', 'Remote Play', 'cloud', 'GFN', 'Supports cloud streaming through NVIDIA GeForce NOW.', 'cloud-streaming', 1, false, [46]),
   feature(10000, 'no-keyboard-mouse', 'No keyboard/mouse support', 'Input', 'keyboard', 'NKM', 'This game cannot be played with a keyboard and mouse.', 'keyboard-mouse', -1),
   feature(10001, 'dynamic-cloud-sync', 'Dynamic Cloud Sync', 'Steam features', 'cloud', 'DYN', 'Syncs Steam Cloud saves when the game is suspended, so you can continue on another device.', 'dynamic-cloud-sync'),
   feature(10002, 'achievement-sets', 'Achievement Sets', 'Steam features', 'trophy', 'SET', 'Organizes achievements into separate sets, such as DLC, game modes or updates.', 'achievement-sets'),

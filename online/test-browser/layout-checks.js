@@ -53,6 +53,26 @@ async (page, options = {}) => {
     const region = document.querySelector('#matrix-region'), header = document.querySelector('#feature-62'), bounds = header.getBoundingClientRect();
     return document.activeElement === header.querySelector('button') && region.scrollLeft > previous.scrollLeft && region.scrollTop === previous.scrollTop && bounds.left >= document.querySelector('#matrix-head .fixed-score').getBoundingClientRect().right - 1 && bounds.right <= region.getBoundingClientRect().left + region.clientLeft + region.clientWidth + 1;
   }, partial));
+  await page.evaluate(() => window.steamFeatureAtlas.setFilters({ includeMultiplayer: true, includeHardware: true, includeRemotePlay: true, includeAccessibility: true })); await settled();
+  const wideLayouts = [];
+  for (const width of [2100, 2200, 2560, 3440]) {
+    await page.setViewportSize({ width, height: 1200 }); await layout('all columns at ' + width);
+    const bounds = await page.evaluate(() => {
+      const region = document.querySelector('#matrix-region'), rect = region.getBoundingClientRect(), styles = getComputedStyle(document.querySelector('main'));
+      return { viewport: document.documentElement.clientWidth, left: rect.left, right: rect.right, width: rect.width,
+        controlsWidth: document.querySelector('#filters').getBoundingClientRect().width,
+        paddingLeft: parseFloat(styles.paddingLeft), paddingRight: parseFloat(styles.paddingRight), overflow: region.scrollWidth > region.clientWidth + 1,
+        pageOverflow: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1 };
+    });
+    wideLayouts.push(bounds);
+    check('The matrix uses all available width while scrolling at ' + width, !bounds.overflow || Math.abs(bounds.left - bounds.paddingLeft) <= 1 && Math.abs(bounds.right - (bounds.viewport - bounds.paddingRight)) <= 1);
+    check('Controls stay capped without page overflow at ' + width, bounds.controlsWidth <= 1936 && !bounds.pageOverflow);
+  }
+  check('The expanded matrix becomes wider than the controls', wideLayouts[0].width > wideLayouts[0].controlsWidth + 50);
+  check('All columns fit once the viewport is wide enough', !wideLayouts.at(-1).overflow);
+  await page.evaluate(() => window.steamFeatureAtlas.setFilters({ includeMultiplayer: false, includeHardware: false, includeRemotePlay: false, includeAccessibility: false })); await settled(); await layout('default columns on an ultrawide display');
+  check('A matrix that fits retains the normal content width', await page.evaluate(() => Math.abs(document.querySelector('#matrix-region').getBoundingClientRect().width - document.querySelector('#filters').getBoundingClientRect().width) <= 1));
   check('Layout resizing produces no browser or ResizeObserver errors', errors.length === 0);
+  layouts.push({label:'wide layouts',measurements:wideLayouts});
   return {passed:checks.length,checks,layouts,errors};
 }

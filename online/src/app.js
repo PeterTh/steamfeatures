@@ -150,6 +150,7 @@ let gameCard = null, tipSearch = null, loadGameImage = createGameImageLoader(nul
       }
     }
     $('matrix').style.setProperty('--feature-total', visibleFeatures.length);
+    $('results').style.setProperty('--feature-total', visibleFeatures.length);
     $('matrix').style.width = `calc(var(--rank) + var(--game) + var(--score) + ${visibleFeatures.length} * var(--cell))`;
     $('empty-state').hidden = view.length > 0; $('matrix').hidden = view.length === 0;
     $('matrix-region').scrollTop = 0;
@@ -210,6 +211,7 @@ let gameCard = null, tipSearch = null, loadGameImage = createGameImageLoader(nul
   function updateMatrixLayout() {
     if ($('results').hidden) return;
     const region = $('matrix-region');
+    $('results').style.setProperty('--matrix-gutter', (region.offsetWidth - region.clientWidth) + 'px');
     $('matrix').style.setProperty('--matrix-width', region.clientWidth + 'px');
     const rect = region.getBoundingClientRect();
     const below = document.querySelector('main').getBoundingClientRect().bottom - rect.bottom;
@@ -758,6 +760,7 @@ function syncControls(preserveDateDraft = false, preserveSearchDraft = false, pr
   $('accessibility').checked = state.includeAccessibility;
   $('multiplayer').checked = state.includeMultiplayer;
   $('hardware').checked = state.includeHardware;
+  $('remote-play').checked = state.includeRemotePlay;
   $('release').value = state.release;
   if (!preserveReviewDraft || !reviewDraftDirty) {
     for (const [field, id] of reviewFields) $(id).value = field === 'minReviews' ? state[field] || '' : state[field] ?? '';
@@ -1097,6 +1100,7 @@ for (const [field, id] of textFields) $(id).addEventListener('input', e => {
 $('accessibility').addEventListener('change', e => setFilters({ includeAccessibility: e.target.checked }));
 $('multiplayer').addEventListener('change', e => setFilters({ includeMultiplayer: e.target.checked }));
 $('hardware').addEventListener('change', e => setFilters({ includeHardware: e.target.checked }));
+$('remote-play').addEventListener('change', e => setFilters({ includeRemotePlay: e.target.checked }));
 $('release').addEventListener('change', e => setFilters({ release: e.target.value }));
 for (const id of ['release-from', 'release-to']) {
   $(id).addEventListener('input', () => { dateDraftDirty = true; });

@@ -1,0 +1,53 @@
+(async function (page, { baseURL = 'http://127.0.0.1:4179/', expected, screenshotDirectory }) {
+  const checks = [], errors = [];
+  const check = (name, value) => { if (!value) throw new Error(name); checks.push(name); };
+  const state = () => page.evaluate(() => window.steamFeatureAtlas.getView());
+  const settled = () => page.waitForFunction(() => window.steamFeatureAtlas?.getView().page && !document.getElementById('results').hidden && !document.getElementById('results').hasAttribute('aria-busy'));
+  const set = async patch => { await page.evaluate(patch => window.steamFeatureAtlas.setFilters(patch), patch); await settled(); };
+  const remoteIds = [41, 42, 43, 46, 44];
+  page.on('pageerror', error => errors.push(error.message));
+  await page.goto(baseURL); await settled();
+  check('Remote Play is uncounted by default', !(await state()).filters.includeRemotePlay && !await page.locator('#remote-play').isChecked() && (await state()).featureColumns === expected.defaultColumns);
+  check('Count toggles follow table order with Accessibility last', await page.locator('.count-controls input').evaluateAll(nodes => nodes.map(node => node.id).join()) === 'multiplayer,hardware,remote-play,accessibility');
+  check('All Remote Play columns are initially hidden', await page.locator(remoteIds.map(id => '#feature-' + id).join(',')).count() === 0);
+  await page.locator('#feature-toggle').click();
+  const pickerIds = await page.locator('#feature-options .feature-option').evaluateAll(nodes => nodes.map(node => Number(node.dataset.featureId)));
+  check('Feature selectors follow the canonical group order', pickerIds.join() === expected.pickerIds.join());
+  await page.getByRole('button', { name: 'Require Remote Play on Phone', exact: true }).click(); await settled();
+  check('An explicit Remote Play filter works while its columns and score are off', (await state()).matching === expected.phoneMatching && await page.locator('#feature-41').count() === 0);
+  const matching = (await state()).matching;
+  await page.locator('#remote-play').check(); await settled();
+  check('Counting Remote Play does not change matching games', (await state()).matching === matching);
+  check('Remote Play Together follows Remote Play independently of Multiplayer', !(await state()).filters.includeMultiplayer && await page.locator('#feature-44').count() === 1);
+  check('All five Remote Play columns retain their intended order', await page.locator('.feature-head').evaluateAll((nodes, ids) => nodes.map(node => Number(node.dataset.feature)).filter(id => ids.includes(id)).join(), remoteIds) === remoteIds.join());
+  check('Remote Play counting is included in shared URLs', new URL(page.url()).searchParams.get('rp') === '1');
+  await page.locator('#reset').click(); await settled();
+  await set({ q: 'Portal 2' });
+  check('The default score omits all listed Remote Play flags', (await state()).games.find(game => game.id === 620).score === expected.portalDefault);
+  await page.locator('#remote-play').check(); await settled();
+  check('Enabling Remote Play adds exactly its listed feature points', (await state()).games.find(game => game.id === 620).score === expected.portalRemote);
+  await page.reload(); await settled();
+  check('Remote Play counting survives reload', (await state()).filters.includeRemotePlay && (await state()).games.find(game => game.id === 620).score === expected.portalRemote);
+  await page.locator('#remote-play').uncheck(); await settled(); await page.goBack(); await settled();
+  check('Back restores Remote Play counting', (await state()).filters.includeRemotePlay && await page.locator('#feature-44').count() === 1);
+  await page.goForward(); await settled();
+  await page.locator('#multiplayer').check(); await settled();
+  check('Multiplayer alone cannot count or reveal Remote Play Together', !(await state()).filters.includeRemotePlay && await page.locator('#feature-44').count() === 0);
+  await page.locator('#hardware').check(); await settled();
+  await page.locator('#remote-play').check(); await settled();
+  await page.locator('#accessibility').check(); await settled();
+  const groups = await page.locator('#matrix-head th[scope="colgroup"]').allTextContents();
+  check('Compatibility precedes Remote Play and Accessibility is the final table group', groups.slice(-3).join() === 'Steam hardware,Remote Play,Accessibility');
+  check('Every optional column remains available when all toggles are on', (await state()).featureColumns === expected.allColumns);
+  await page.locator('#feature-toggle').click();
+  if (screenshotDirectory) await page.screenshot({ path: screenshotDirectory + '/desktop.png' });
+  for (const width of [390, 320]) {
+    await page.setViewportSize({ width, height: 1000 });
+    check('Count controls and selectors fit a ' + width + 'px viewport', await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
+    if (screenshotDirectory) await page.screenshot({ path: screenshotDirectory + '/' + width + '.png' });
+  }
+  await page.locator('#reset').click(); await settled();
+  check('Reset returns to the new default counting rules', !(await state()).filters.includeRemotePlay && (await state()).featureColumns === expected.defaultColumns && (await state()).maxScore === expected.defaultScale);
+  check('No browser script errors', errors.length === 0);
+  return { checks, errors };
+})

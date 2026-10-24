@@ -120,10 +120,10 @@ test('hidden cloud and hardware details contribute neither count nor score', () 
   const catalog = { features: registry, games: [{ ...game(10), featureIds: [2, 45, 46, 10012, details.id] }] };
   const ordinary = runQuery(catalog);
   const hardware = runQuery(catalog, { includeHardware: true });
-  assert.equal(ordinary.rows[0].score, 2);
-  assert.equal(ordinary.rows[0].count, 2);
-  assert.equal(hardware.rows[0].score, 2);
-  assert.equal(hardware.rows[0].count, 3);
+  assert.equal(ordinary.rows[0].score, 1);
+  assert.equal(ordinary.rows[0].count, 1);
+  assert.equal(hardware.rows[0].score, 1);
+  assert.equal(hardware.rows[0].count, 2);
   assert.equal(hardware.columns.length, ordinary.columns.length + 4);
   assert.equal(hardware.maxScore, ordinary.maxScore + 4);
   assert.equal(hardware.minScore, ordinary.minScore - 4);

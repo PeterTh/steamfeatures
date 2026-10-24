@@ -65,11 +65,11 @@ test('matching duplicate highlights are accepted and canonicalized', () => {
   assert.equal(serializeView(parsed.query, parsed.highlight, features), '?v=1&highlight=steam-cloud');
 });
 
-test('hidden multiplayer and accessibility columns retain their highlight', () => {
-  for (const [key, toggle] of [['multi-player', 'includeMultiplayer'], ['adjustable-text-size', 'includeAccessibility']]) {
+test('hidden multiplayer, remote play and accessibility columns retain their highlight', () => {
+  for (const [key, toggle] of [['multi-player', 'includeMultiplayer'], ['remote-play-on-phone', 'includeRemotePlay'], ['adjustable-text-size', 'includeAccessibility']]) {
     for (const enabled of [false, true]) {
       const query = { ...DEFAULT_QUERY, [toggle]: enabled };
-      const parsed = parseView(serializeView(query, key, features), features);
+      const parsed = parseView(serializeView(query, key, allFeatures), allFeatures);
       assert.equal(parsed.highlight, key);
       assert.deepEqual(parsed.query, query);
     }

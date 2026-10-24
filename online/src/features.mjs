@@ -1,4 +1,4 @@
-import { extraFeatures } from './extra-features.mjs';
+import { extraFeatures, FEATURE_GROUP_ORDER } from './extra-features.mjs';
 
 const stableKeys = {
   "1": "multi-player",
@@ -65,7 +65,7 @@ const stableKeys = {
   "82": "contrast-controls"
 };
 const weights = new Map([[60, 0], [16, 0], [35, -1], [8, 0], [54, 0], [23, 3], [22, 2]]);
-const multiplayerIds = new Set([1, 20, 49, 36, 47, 37, 9, 38, 48, 39, 24, 27, 44, 32, 72, 73]);
+const multiplayerIds = new Set([1, 20, 49, 36, 47, 37, 9, 38, 48, 39, 24, 27, 32, 72, 73]);
 const f = (ids, name, group, icon, short, description, accessibility = false) => ({
   id: ids[0], key: stableKeys[ids[0]], steamIds: ids, name, group, icon, short,
   description, accessibility, weight: weights.get(ids[0]) ?? 1, multiplayer: multiplayerIds.has(ids[0])
@@ -136,8 +136,7 @@ export const features = [
 ];
 const compactLabels = { FULL: 'ALL', PART: 'PAR', CARD: 'TC', SAVE: 'SAV', STAT: 'ST', RANK: 'LB', TIME: 'TL', TURN: 'TN', EDIT: 'ED', COMM: 'VO', ITEM: 'ITM', SIZE: 'TXT', MENU: 'NAR', DIFF: 'LVL', PACE: 'OWN', CONT: 'CON' };
 features.push(...extraFeatures);
-const groupOrder = ['Play modes', 'Input', 'Steam features', 'Creation', 'Features?', 'Remote Play', 'Cloud streaming', 'Display & VR', 'Accessibility', 'Steam hardware'];
 const disclosureOrder = [35, 10003, 10004, 10005, 8];
-features.sort((a, b) => groupOrder.indexOf(a.group) - groupOrder.indexOf(b.group)
+features.sort((a, b) => FEATURE_GROUP_ORDER.indexOf(a.group) - FEATURE_GROUP_ORDER.indexOf(b.group)
   || (a.group === 'Features?' ? disclosureOrder.indexOf(a.id) - disclosureOrder.indexOf(b.id) : 0));
 for (const feature of features) feature.short = compactLabels[feature.short] || feature.short;

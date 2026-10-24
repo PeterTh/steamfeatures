@@ -33,6 +33,8 @@ Run `game-card-checks.js` for title-button pinning, Steam/SteamDB/Steamograph li
 
 `achievement-sets-checks.js` checks the SET column beside ACH, +1 scoring, compact links, initial/full catalog handover, require/exclude controls, known negatives and unavailable schemas in desktop/mobile layouts. Supply `expected: { initial, all, negatives, portalScore }` for the served snapshot; `portalScore` is Portal 2's previous score plus one.
 
+`remote-play-checks.js` checks default opt-out, independent Remote Play Together counting, toggle/table/picker order, explicit filters while uncounted, point changes, URL/reload/history/reset and mobile layouts. Supply `expected: { defaultColumns, defaultScale, allColumns, pickerIds, phoneMatching, portalDefault, portalRemote }` for the served snapshot.
+
 `compatibility-details-checks.js` opens real Deck, Machine, Frame and SteamOS ratings and checks device-specific notes, duplicate removal, keyboard focus and dismissal, unchanged filters/scores, and scrolling mobile dialogs. It uses Portal 2, Hotline Miami, Halo Infinite and PUBG from the enriched catalog.
 
 `language-checks.js` verifies searchable per-language cards, regional variants, independent interface/audio/subtitle requirements and exclusions, combined filters, unchanged table columns and scores, removable chips, shared URLs, history, reset, keyboard focus, and layouts from 320 to 1440 pixels. It needs a full catalog with language support data.

@@ -13,7 +13,7 @@ const feature = id => features.find(value => value.id === id);
 
 test('Features? follows Creation, Input replaces Controllers, and VAC is neutral independent of multiplayer', () => {
   const groups = [...new Set(features.map(value => value.group))];
-  assert.deepEqual(groups.slice(groups.indexOf('Creation'), groups.indexOf('Remote Play') + 1), ['Creation', 'Features?', 'Remote Play']);
+  assert.deepEqual(groups.slice(groups.indexOf('Creation'), groups.indexOf('Creation') + 2), ['Creation', 'Features?']);
   assert.ok(groups.includes('Input'));
   assert.ok(!groups.includes('Controllers'));
   assert.deepEqual(features.filter(value => value.group === 'Features?').map(value => value.id), [35, 10003, 10004, 10005, 8]);

@@ -1,4 +1,4 @@
-import { extraFeatures, hardwareDevices, isFeatureKnown, featureWeight } from './extra-features.mjs';
+import { extraFeatures, hardwareDevices, isFeatureKnown, featureWeight, FEATURE_GROUP_ORDER } from './extra-features.mjs';
 
 export const compatibilityTargets = hardwareDevices.map(device => ({
   key: device.key, name: device.name, parameter: device.key.slice('steam-'.length),
@@ -10,15 +10,22 @@ export const compatibilityTargets = hardwareDevices.map(device => ({
 const deviceByStatus = new Map(hardwareDevices.flatMap(device =>
   (device.key === 'steam-os' ? [0, 1, 2] : [0, 1, 2, 3]).map(status => [device.base + status, device])));
 const descriptions = new Map(extraFeatures.map(feature => [feature.id, feature.description]));
+const groupRank = group => {
+  const rank = FEATURE_GROUP_ORDER.indexOf(group);
+  return rank < 0 ? FEATURE_GROUP_ORDER.indexOf('Steam hardware') - 0.5 : rank;
+};
 
 /** Keep the collected flags intact; choose the features offered by the interface. */
 export function presentationFeatures(features) {
   const visible = features.filter(feature => feature.id !== 45 && (!feature.hardware || deviceByStatus.has(feature.id))).map(feature => {
     const device = deviceByStatus.get(feature.id);
-    return { ...feature, icon: 'column-' + (device?.key ?? feature.key),
-      ...(feature.id === 46 ? { group: 'Remote Play' } : {}),
+    const group = feature.id === 46 ? 'Remote Play' : feature.group;
+    const remotePlay = group === 'Remote Play';
+    return { ...feature, group, remotePlay, ...(remotePlay ? { multiplayer: false } : {}), icon: 'column-' + (device?.key ?? feature.key),
       ...(descriptions.has(feature.id) ? { description: descriptions.get(feature.id) } : {}) };
   });
+  // Presentation also applies to catalogs built before these counting rules.
+  visible.sort((a, b) => groupRank(a.group) - groupRank(b.group));
   for (const [id, after] of [[10002, 22], [10001, 23], [46, 43]]) {
     const index = visible.findIndex(feature => feature.id === id);
     if (index < 0 || !visible.some(feature => feature.id === after)) continue;
