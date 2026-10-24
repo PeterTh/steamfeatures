@@ -392,7 +392,8 @@ function compareNullable(a, b, direction = -1) {
 }
 
 /** Pure query operation; feature constraints are independent of visible columns. */
-export function runQuery(catalog, input = DEFAULT_QUERY) {
+export function runQuery(catalog, input = DEFAULT_QUERY, { libraryRules = [] } = {}) {
+  if (!Array.isArray(libraryRules) || libraryRules.some(rule => !(rule?.appIds instanceof Set) || typeof rule.exclude !== 'boolean')) throw new Error('Invalid local library filters.');
   const prepared = prepareCatalog(catalog);
   const query = normalizeQuery(input, prepared.features, prepared.tags, prepared.languages);
   const creditTerms = [normalizeCreditSearch(query.developer), normalizeCreditSearch(query.publisher)];
@@ -419,6 +420,7 @@ export function runQuery(catalog, input = DEFAULT_QUERY) {
     (query.includeAccessibility || !feature.accessibility) && (query.includeMultiplayer || !feature.multiplayer) && (query.includeHardware || !feature.hardware));
   const matches = prepared.games.filter(row => {
     const game = row.game;
+    if (libraryRules.some(rule => rule.appIds.has(game.id) === rule.exclude)) return false;
     if (releaseStatus !== 'all' && game.releaseStatus !== releaseStatus) return false;
     if (query.release === 'released' && game.earlyAccess !== false) return false;
     if (query.release === 'early-access' && game.earlyAccess !== true) return false;

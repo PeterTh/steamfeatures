@@ -1,4 +1,5 @@
 import { prepareCatalog, runQuery, attachGameCredits } from './query.mjs';
+import { libraryAppIds } from './user-library.mjs';
 import { decodeBinaryCatalog } from './catalog-binary.mjs';
 import { validateBinaryDescriptor, BINARY_MAX_BYTES, JSON_MAX_BYTES, COMPRESSED_MAX_BYTES } from './catalog-descriptor.mjs';
 import { isCompatibilityDetail } from './compatibility-details.mjs';
@@ -229,15 +230,20 @@ let creditsLoading = null;
 let catalogSnapshot = null;
 
 // Guard permits importing loadCatalog in Node tests without emulating a worker.
+let localLibraryRules = [];
 if (typeof self !== 'undefined' && typeof self.addEventListener === 'function') {
   self.addEventListener('message', async event => {
     const message = event.data ?? {};
     let token = initialization;
     try {
-      if (message.type === 'init') {
+      if (message.type === 'library') {
+        if (!Array.isArray(message.rules) || message.rules.length > 2 || message.rules.some(rule => typeof rule?.exclude !== 'boolean')) throw new Error('Invalid local library filters.');
+        localLibraryRules = message.rules.map(rule => ({ appIds: new Set(libraryAppIds(rule.appIds)), exclude: rule.exclude }));
+      } else if (message.type === 'init') {
         token = ++initialization;
         prepared = null;
         creditsLoading = null;
+        localLibraryRules = [];
         const loaded = message.catalog
           ? { catalog: message.catalog, manifest: null }
           : await loadCatalog(message.plan?.manifestURL ?? message.manifestURL, {
@@ -289,7 +295,7 @@ if (typeof self !== 'undefined' && typeof self.addEventListener === 'function') 
       } else if (message.type === 'query') {
         if (!prepared) throw new Error('The game catalog has not loaded yet.');
         if (partial && !queryUsesPriority(message.query, prepared)) throw new Error('This filter needs the complete catalog.');
-        const result = runQuery(prepared, message.query);
+        const result = runQuery(prepared, message.query, { libraryRules: localLibraryRules });
         if (message.pinnedGameId && prepared.gameCredits) {
           const index = prepared.gameCredits;
           const position = index.appIds.indexOf(message.pinnedGameId);

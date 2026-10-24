@@ -88,6 +88,12 @@ npm run project:achievement-sets
 
 The command independently verifies `.cache/steam-supplement/archive.json` and its archive before generating the compressed seed and lookup. Use repeated `--directory <path>` options to merge completed collections, including an achievement-only delta; the source databases are opened read-only. Existing seed results merge by observation time without losing later usable data. Review and commit both generated seed files with the associated source changes; no separate upload of the full raw supplement is required.
 
+## User Library filter
+
+The User Library panel imports the signed-in Steam store's `dynamicstore/userdata/` JSON through a local file picker. It validates and deduplicates `rgOwnedApps` and `rgWishlist`, discards all other fields, and retains only those app IDs and the local filter choices in this browser's local storage. Owned games and Wishlisted each have independent +/− controls: require, exclude or ignore. All active rules apply together, so requiring wishlisted games and excluding owned games finds unowned wishlist entries. No library file, account identifier or login is uploaded. Importing or changing these filters makes no network requests; filtering combines with the ordinary query in the existing catalog worker, including its progressive handover.
+
+Copied links contain the ordinary filters only. Owned and wishlist choices are local to the browser and are never placed in a URL. App IDs are written only on an explicit file import; preferences use a separate storage key. Reset filters clears both local rules while retaining the imported IDs; Forget library removes both saved lists and invalidates other open tabs, including their pending file reads. A stale tab changing preferences cannot write the IDs back. Invalid files leave the prior data intact, and blocked/full local storage still permits use for the current visit. A missing wishlist disables wishlist controls; an explicitly empty wishlist is a valid empty list. This imports owned apps, not the separate Steam Families shared library. Game cards retain their existing on-demand artwork loading.
+
 ## Publish to GitHub Pages
 
 Push the source to a public repository and select **Settings → Pages → Build and deployment → GitHub Actions**. The workflow needs permission to deploy Pages and commit `online/provenance-lock.json`; branch protection must allow that bot commit.

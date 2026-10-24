@@ -5,6 +5,7 @@ import { compatibilityDetails } from './compatibility-details.mjs';
 import { LANGUAGE_KINDS } from './languages.mjs';
 import { createGameImageLoader, steamHeaderURL } from './game-images.mjs';
 import { normalizeCreditSearch } from './game-credits.mjs';
+import { parseUserLibrary, libraryAppIds, LIBRARY_STORAGE_KEY, LIBRARY_FILTER_STORAGE_KEY, LIBRARY_MAX_BYTES } from './user-library.mjs';
 
 const $ = id => document.getElementById(id);
 const fmt = n => n == null ? 'Unknown' : new Intl.NumberFormat('en-US').format(n);
@@ -18,6 +19,9 @@ let fullWorker, fullReady = false, backgroundStarted = false, backgroundError = 
 let lastSubmittedQuery = null, completedRequest = 0, fullReadyAt = null;
 let creditsStatus = 'idle', creditsError = null, creditsFile = null, pendingCreditsQuery = false;
 let creditsRefreshRequest = 0;
+let userLibrary = null, libraryFilters = { owned: '', wishlist: '' }, libraryImport = 0, libraryStorageNotice = '';
+const libraryFields = [['owned', 'Owned games'], ['wishlist', 'Wishlisted']];
+const hasLibraryFilters = () => libraryFields.some(([kind]) => libraryFilters[kind]);
 const creditFields = [['developer', 'Developer'], ['publisher', 'Publisher']];
 const textFields = [['q', 'search', 'q'], ['developer', 'developer-filter', 'dev'], ['publisher', 'publisher-filter', 'pub']];
 const textFilterPatch = () => Object.fromEntries(textFields.map(([field, id]) => [field, $(id).value]));
@@ -441,6 +445,115 @@ function showError(message, loading = false) {
   $('results').hidden = true;
   $('results').removeAttribute('aria-busy');
 }
+function syncLibraryControls() {
+  const active = hasLibraryFilters();
+  for (const [kind] of libraryFields) {
+    const mode = libraryFilters[kind];
+    $('library-' + kind).classList.toggle('selected', mode === 'has');
+    $('library-' + kind).classList.toggle('excluded', mode === 'not');
+    for (const action of ['has', 'not']) {
+      const button = $(`library-${kind}-${action}`);
+      button.disabled = userLibrary === null || kind === 'wishlist' && userLibrary.wishlistIds === null;
+      button.setAttribute('aria-pressed', String(mode === action));
+    }
+  }
+  $('library-forget').hidden = userLibrary === null;
+  $('active-library-count').textContent = libraryFields.filter(([kind]) => libraryFilters[kind]).length;
+  $('library-status').textContent = (userLibrary === null ? 'No library imported.'
+    : `${fmt(userLibrary.appIds.length)} owned app ${userLibrary.appIds.length === 1 ? 'ID' : 'IDs'}`
+      + (userLibrary.wishlistIds === null ? '; wishlist data is missing from this file. Reimport the Steam JSON to filter your wishlist.'
+        : ` and ${fmt(userLibrary.wishlistIds.length)} wishlist app ${userLibrary.wishlistIds.length === 1 ? 'ID' : 'IDs'} imported.`)
+      + ' Only catalog games matching your other filters are shown.')
+    + (libraryStorageNotice ? ' ' + libraryStorageNotice : '');
+  $('share-library-warning').toggleAttribute('hidden', !active);
+  $('share').title = active ? 'User Library filters are local to this browser and are not included in shared links.' : 'Copy a link to these filters';
+}
+function setLibraryError(message = '') {
+  $('library-error').textContent = message; $('library-error').hidden = !message;
+}
+function saveUserLibrary({ imported = false, forget = false } = {}) {
+  libraryStorageNotice = '';
+  try {
+    if (forget) {
+      localStorage.removeItem(LIBRARY_STORAGE_KEY);
+      localStorage.removeItem(LIBRARY_FILTER_STORAGE_KEY);
+    } else {
+      // Only a fresh, explicit file import writes IDs. A stale tab changing
+      // its filters can therefore never put a forgotten library back on disk.
+      if (imported) localStorage.setItem(LIBRARY_STORAGE_KEY, JSON.stringify({ version: 1, ...userLibrary }));
+      localStorage.setItem(LIBRARY_FILTER_STORAGE_KEY, JSON.stringify({ version: 1, ...libraryFilters }));
+    }
+  } catch {
+    libraryStorageNotice = forget
+      ? 'The saved library could not be removed. Clear this site’s storage in your browser settings to forget it permanently.'
+      : 'This browser could not save the library. You can still use it for this visit.';
+  }
+}
+function restoreUserLibrary() {
+  userLibrary = null; libraryFilters = { owned: '', wishlist: '' }; libraryStorageNotice = '';
+  try {
+    const saved = localStorage.getItem(LIBRARY_STORAGE_KEY);
+    if (saved) {
+      const value = JSON.parse(saved);
+      if (value?.version !== 1) throw new Error('Invalid saved library');
+      userLibrary = { appIds: libraryAppIds(value.appIds), wishlistIds: value.wishlistIds == null ? null : libraryAppIds(value.wishlistIds) };
+      const savedFilters = localStorage.getItem(LIBRARY_FILTER_STORAGE_KEY);
+      let filters;
+      try { filters = savedFilters ? JSON.parse(savedFilters) : value.filters ?? { owned: value.active === true ? 'has' : '', wishlist: '' }; } catch { /* Invalid preferences do not erase valid app IDs. */ }
+      libraryFilters = (!savedFilters || filters?.version === 1) && libraryFields.every(([kind]) => ['', 'has', 'not'].includes(filters?.[kind]))
+        ? { owned: filters.owned, wishlist: userLibrary.wishlistIds === null ? '' : filters.wishlist } : { owned: '', wishlist: '' };
+    }
+  } catch {
+    userLibrary = null; libraryFilters = { owned: '', wishlist: '' };
+    try { localStorage.removeItem(LIBRARY_STORAGE_KEY); localStorage.removeItem(LIBRARY_FILTER_STORAGE_KEY); } catch { /* File import still works without storage access. */ }
+  }
+  syncLibraryControls();
+}
+function sendUserLibrary(target) {
+  const rules = libraryFields.filter(([kind]) => libraryFilters[kind]).map(([kind]) => ({
+    appIds: kind === 'owned' ? userLibrary.appIds : userLibrary.wishlistIds, exclude: libraryFilters[kind] === 'not',
+  }));
+  target?.postMessage({ type: 'library', rules });
+}
+function updateUserLibrary(options) {
+  hideTip(); saveUserLibrary(options); syncLibraryControls();
+  for (const target of new Set([worker, fullWorker])) sendUserLibrary(target);
+}
+function setLibraryFilter(kind, action) {
+  if (userLibrary === null || kind === 'wishlist' && userLibrary.wishlistIds === null) return;
+  libraryFilters = { ...libraryFilters, [kind]: libraryFilters[kind] === action ? '' : action };
+  updateUserLibrary(); setFilters({ page: 1 });
+}
+async function importUserLibrary() {
+  const file = $('library-file').files[0];
+  if (!file) return;
+  const current = ++libraryImport;
+  setLibraryError();
+  try {
+    if (file.size > LIBRARY_MAX_BYTES) throw new Error('This file is too large. Select a Steam library JSON file smaller than 16 MB.');
+    const text = await file.text();
+    if (current !== libraryImport) return;
+    const imported = parseUserLibrary(text);
+    if (libraryFilters.wishlist && imported.wishlistIds === null) throw new Error('Wishlist data is missing from this file. Save the Steam JSON again to update your wishlist.');
+    const active = hasLibraryFilters();
+    userLibrary = imported;
+    if (!active) libraryFilters = { owned: imported.appIds.length ? 'has' : '', wishlist: imported.appIds.length ? '' : 'has' };
+    updateUserLibrary({ imported: true }); setFilters({ page: 1 });
+  } catch (error) {
+    if (current === libraryImport) setLibraryError(error.message);
+  } finally {
+    if (current === libraryImport) $('library-file').value = '';
+  }
+}
+function forgetUserLibrary() {
+  ++libraryImport; userLibrary = null; libraryFilters = { owned: '', wishlist: '' };
+  $('library-file').value = ''; setLibraryError();
+  updateUserLibrary({ forget: true }); setFilters({ page: 1 });
+}
+function resetFilters() {
+  libraryFilters = { owned: '', wishlist: '' }; updateUserLibrary();
+  setFilters(DEFAULT_QUERY);
+}
 function startWorker() {
   if (fullWorker !== worker) fullWorker?.terminate();
   fullWorker = null; fullReady = false; backgroundStarted = false; backgroundError = null;
@@ -473,6 +586,7 @@ function startWorker() {
     receiveResult(message);
   });
   worker.postMessage({ type: 'init', minReviews: new URLSearchParams(location.search).get('minReviews') ?? DEFAULT_QUERY.minReviews, manifestURL: new URL('./data/manifest.json', location.href).href });
+  sendUserLibrary(worker);
 }
 
 function receiveResult(message) {
@@ -575,6 +689,7 @@ function startBackgroundCatalog(retry = false) {
     } else receiveResult(message);
   });
   fullWorker.postMessage({ type: 'init', mode: 'full', plan: data.progressive.plan });
+  sendUserLibrary(fullWorker);
 }
 
 function writeURL(query, mode = 'replace') {
@@ -666,6 +781,7 @@ function syncControls(preserveDateDraft = false, preserveSearchDraft = false, pr
   $('active-compatibility-count').textContent = Object.values(state.compatibility).filter(value => value !== 'ignore').length;
   $('active-language-count').textContent = state.hasLanguages.length + state.notLanguages.length;
   $('active-developer-count').textContent = Number(!!state.developer.trim()) + Number(!!state.publisher.trim());
+  syncLibraryControls();
   for (const target of compatibilityTargets) {
     const select = $('compatibility-' + target.key); select.value = state.compatibility[target.key];
     select.closest('label').classList.toggle('selected', select.value !== 'ignore');
@@ -694,6 +810,11 @@ function syncControls(preserveDateDraft = false, preserveSearchDraft = false, pr
   }
   for (const [role, label] of creditFields) {
     if (state[role]) addChip(role, 'developer-chip', `${label}: ${state[role]} ×`, `Remove ${role} filter`, () => setFilters({ [role]: '' }));
+  }
+  for (const [kind, label] of libraryFields) {
+    const mode = libraryFilters[kind];
+    if (mode) addChip('library-' + kind + '-' + mode, 'library-chip ' + mode, `${mode === 'has' ? '✓' : '−'} ${label} ×`,
+      `Remove ${mode === 'has' ? 'required' : 'excluded'} ${kind === 'owned' ? 'owned games' : 'wishlisted games'} filter`, () => setLibraryFilter(kind, ''));
   }
   for (const [field, , label] of reviewFields) {
     if (field === 'minReviews' ? !state[field] : state[field] === null) continue;
@@ -939,7 +1060,7 @@ function filterTagOptions() {
 }
 function togglePicker(kind) {
   const open = $(kind + '-picker').hidden;
-  for (const name of ['feature', 'tag', 'review', 'date', 'compatibility', 'language', 'developer']) {
+  for (const name of ['feature', 'tag', 'review', 'date', 'compatibility', 'language', 'developer', 'library']) {
     const expanded = name === kind && open; $(name + '-picker').hidden = !expanded;
     const searchControl = $(name + '-search-control'); if (searchControl) searchControl.hidden = !expanded;
     $(name + '-toggle').setAttribute('aria-expanded', String(expanded));
@@ -959,7 +1080,7 @@ function updateMetadata() {
   $('method-dates').textContent = `Updated ${date(data.importedAt)}. Individual games may have older data.${fileInfo}${creditsFile ? ` Developer/publisher data file: ${formatCatalogFile(creditsFile)}.` : ''}`;
 }
 
-function getView() { return { filters: state, highlight: highlightedFeature, matching, displayed: view.length, featureColumns: visibleFeatures.length, maxScore: latestResult?.maxScore, page: latestResult?.page, pageCount: latestResult?.pageCount, games: view.map(({ id, name, score, count, rank, reviews, positivePercent, releaseISO, earlyAccess, tagIds }) => ({ id, name, score, count, rank, reviews, positivePercent, releaseISO, earlyAccess, tags: (tagIds ?? []).map(id => data.tags[id]) })) }; }
+function getView() { return { filters: state, library: { loaded: userLibrary !== null, active: hasLibraryFilters(), filters: { ...libraryFilters }, appCount: userLibrary?.appIds.length ?? 0, wishlistCount: userLibrary?.wishlistIds?.length ?? null }, highlight: highlightedFeature, matching, displayed: view.length, featureColumns: visibleFeatures.length, maxScore: latestResult?.maxScore, page: latestResult?.page, pageCount: latestResult?.pageCount, games: view.map(({ id, name, score, count, rank, reviews, positivePercent, releaseISO, earlyAccess, tagIds }) => ({ id, name, score, count, rank, reviews, positivePercent, releaseISO, earlyAccess, tags: (tagIds ?? []).map(id => data.tags[id]) })) }; }
 for (const preset of PRESETS) {
   const button = element('button', 'view-button'); button.append(icon(preset.id === 'feature-leaders' ? 'trophy' : 'warning'), element('span', '', preset.title)); button.type = 'button'; button.disabled = true; button.dataset.preset = preset.id; button.title = preset.description;
   button.addEventListener('click', () => setFilters(preset.query)); $('presets').append(button);
@@ -992,8 +1113,11 @@ for (const [, id] of reviewFields) {
 $('feature-search').addEventListener('input', e => { for (const label of $('feature-options').children) label.hidden = !label.dataset.name.includes(e.target.value.toLowerCase()); });
 $('tag-search').addEventListener('input', filterTagOptions);
 $('language-search').addEventListener('input', filterLanguageOptions);
-for (const kind of ['feature', 'tag', 'review', 'date', 'compatibility', 'language', 'developer']) $(kind + '-toggle').addEventListener('click', () => togglePicker(kind));
-for (const id of ['reset', 'empty-reset', 'error-reset']) $(id).addEventListener('click', () => setFilters(DEFAULT_QUERY));
+for (const kind of ['feature', 'tag', 'review', 'date', 'compatibility', 'language', 'developer', 'library']) $(kind + '-toggle').addEventListener('click', () => togglePicker(kind));
+for (const id of ['reset', 'empty-reset', 'error-reset']) $(id).addEventListener('click', resetFilters);
+$('library-file').addEventListener('change', importUserLibrary);
+for (const [kind] of libraryFields) for (const action of ['has', 'not']) $(`library-${kind}-${action}`).addEventListener('click', () => setLibraryFilter(kind, action));
+$('library-forget').addEventListener('click', forgetUserLibrary);
 $('retry').addEventListener('click', startWorker);
 $('highlight-chip').addEventListener('click', () => setHighlight(null));
 $('previous').addEventListener('click', () => setFilters({ page: state.page - 1 }, false));
@@ -1036,10 +1160,19 @@ for (const id of ['news-dialog', 'about-dialog', 'compatibility-dialog']) $(id).
 });
 $('share').addEventListener('click', async () => {
   if (ready && textFields.some(([, id, parameter]) => $(id).value !== (new URLSearchParams(location.search).get(parameter) ?? ''))) setFilters(textFilterPatch(), false);
-  try { await navigator.clipboard.writeText(location.href); $('share-status').textContent = 'Link copied'; $('share-label').textContent = 'Copied!'; setTimeout(() => { $('share-label').textContent = 'Copy link'; }, 1800); }
-  catch { $('share-status').textContent = 'Copy the address from your browser to share this view.'; $('share-label').textContent = 'Copy address bar URL'; }
+  const libraryNote = hasLibraryFilters() ? ' The User Library filters are not included.' : '';
+  try { await navigator.clipboard.writeText(location.href); $('share-status').textContent = 'Link copied.' + libraryNote; $('share-label').textContent = 'Copied!'; setTimeout(() => { $('share-label').textContent = 'Copy link'; }, 1800); }
+  catch { $('share-status').textContent = (hasLibraryFilters() ? 'Copy the address from your browser to share the other filters.' : 'Copy the address from your browser to share this view.') + libraryNote; $('share-label').textContent = 'Copy address bar URL'; }
 });
 window.addEventListener('popstate', () => { if (ready) loadURL(); });
+window.addEventListener('storage', event => {
+  try { if (event.storageArea !== localStorage) return; } catch { return; }
+  if (event.key !== null && event.key !== LIBRARY_STORAGE_KEY) return;
+  ++libraryImport; $('library-file').value = ''; setLibraryError(); hideTip();
+  restoreUserLibrary();
+  for (const target of new Set([worker, fullWorker])) sendUserLibrary(target);
+  if (ready) setFilters({ page: 1 });
+});
   $('matrix').addEventListener('pointerover', e => { const cell = e.target.closest('[data-feature]'); highlightColumn(cell ? Number(cell.dataset.feature) : null); const anchor = e.target.closest('[data-tip]'); if (anchor && !anchor.contains(e.relatedTarget) && e.pointerType !== 'touch') showTip(anchor); });
   $('matrix').addEventListener('pointerout', e => { const anchor = e.target.closest('[data-tip]'); if (anchor && !anchor.contains(e.relatedTarget) && !$('tooltip').contains(e.relatedTarget)) scheduleTipHide(); });
   $('matrix').addEventListener('pointerleave', e => { highlightColumn(null); if (!$('tooltip').contains(e.relatedTarget)) scheduleTipHide(); });
@@ -1073,4 +1206,5 @@ window.addEventListener('popstate', () => { if (ready) loadURL(); });
 $('catalog-retry').addEventListener('click', () => pendingCreditsQuery && fullReady ? startCredits(true) : startBackgroundCatalog(true));
 $('credits-retry').addEventListener('click', () => startCredits(true));
 window.steamFeatureAtlas = Object.freeze({ getView, setFilters, getLoadState: () => ({ fullReady, backgroundStarted, backgroundError, pendingFullQuery, fullReadyAt, partial: data.progressive?.partial === true, creditsStatus, creditsError, pendingCreditsQuery }) });
+restoreUserLibrary();
 startWorker();

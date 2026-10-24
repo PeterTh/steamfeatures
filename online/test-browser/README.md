@@ -21,6 +21,8 @@ These checks use real catalog entries and cover filtering, sorting, shared URLs,
 
 Run `highlight-checks.js` in the same way for column selection, URL persistence, compact table sizing, and tooltip placement. It checks viewports from 320 to 1920 pixels and returns their measured layouts with its results.
 
+`user-library-checks.js` imports synthetic Steam JSON and checks independent owned/wishlisted requirements and exclusions, empty/missing wishlists, local-only persistence, invalid/oversized files, offline use, share-link omission, cross-tab forgetting and pending reads, reset/forget, mobile layout and the progressive worker handover. Supply a page from an explicit `browser.newContext()` so the checks can open additional tabs, and `expected: { lowId, allGames, highScore, remainderFiles }` for a released game below 20 reviews, the all-catalog game count, Team Fortress 2's score and the remainder archive filenames. No real account data or Steam login is used.
+
 Run `game-card-checks.js` for title-button pinning, Steam/SteamDB/Steamograph links, on-demand artwork, scrolling, keyboard focus, mobile layouts, failed images and stale lookup responses. It verifies that initial loading makes no artwork requests. Optional `screenshotDirectory` output captures the desktop and mobile cards.
 
 `layout-checks.js` checks how the matrix fits the viewport when panels open and close, the window resizes, and keyboard navigation reveals a highlighted column.
