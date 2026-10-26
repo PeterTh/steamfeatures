@@ -9,7 +9,11 @@ async (page, options = {}) => {
     return current.filters.releaseFrom === from && current.filters.releaseTo === to && !document.querySelector('#results').hasAttribute('aria-busy');
   }, {from, to});
   const edit = async (id, value) => { await page.locator(id).fill(value); await page.locator(id).dispatchEvent('change'); };
-  const openDates = async () => { if (await page.locator('#date-picker').isHidden()) await page.locator('#date-toggle').click(); };
+  const openDates = async () => {
+    if (await page.locator('#date-picker').isVisible()) return;
+    if (await page.locator('#filter-category').isVisible()) await page.locator('#filter-category').selectOption('date');
+    else await page.locator('#date-toggle').click();
+  };
   const dateParams = () => page.evaluate(() => {
     const params = new URLSearchParams(location.search);
     return {from:params.get('releaseFrom'),to:params.get('releaseTo'),highlight:params.get('highlight')};
@@ -173,12 +177,12 @@ async (page, options = {}) => {
   await page.locator('#share').click();
   check('Copy Link includes both dates and the highlight', await page.evaluate(day => {
     const params = new URL(window.releaseDateCopiedURL).searchParams;
-    return params.get('releaseFrom') === day && params.get('releaseTo') === day && params.get('highlight') === 'steam-cloud';
+    return params.get('releaseFrom') === day && params.get('releaseTo') === day && params.get('highlight') === 'CLD';
   }, fixture.day));
   await page.locator('#reset').click(); await dates('', '');
   check('Reset clears both dates with other filters while keeping the highlight', (await view()).matching === fixture.totals.all && !(await view()).filters.has.length && !(await view()).filters.hasTags.length && !(await view()).filters.q && (await view()).highlight === 'steam-cloud' && await page.locator('#release-from').inputValue() === '' && await page.locator('#release-to').inputValue() === '' && await page.locator('#active-date-count').innerText() === '0');
   await page.goto(base + '?releaseFrom=2024&releaseTo=2024-02&highlight=steam-cloud'); await settled();
-  check('Shared year and month bounds retain their precision and the highlight', (await view()).filters.releaseFrom === '2024' && (await view()).filters.releaseTo === '2024-02' && await page.locator('#release-from').inputValue() === '2024' && await page.locator('#release-to').inputValue() === '2024-02' && JSON.stringify(await dateParams()) === JSON.stringify({from:'2024',to:'2024-02',highlight:'steam-cloud'}));
+  check('Shared year and month bounds retain their precision and the highlight', (await view()).filters.releaseFrom === '2024' && (await view()).filters.releaseTo === '2024-02' && await page.locator('#release-from').inputValue() === '2024' && await page.locator('#release-to').inputValue() === '2024-02' && JSON.stringify(await dateParams()) === JSON.stringify({from:'2024',to:'2024-02',highlight:'CLD'}));
   for (const search of ['?releaseFrom=2025-02-30', '?releaseTo=2025-2-03', '?releaseFrom=2025-02-04&releaseTo=2025-02-03']) {
     await page.goto(base + search); await page.locator('#error:not([hidden])').waitFor();
     check(`Invalid shared date query is rejected: ${search}`, await page.locator('#results').isHidden());
@@ -191,11 +195,11 @@ async (page, options = {}) => {
     await openDates();
     const layout = await page.evaluate(() => {
       const bounds = selector => { const r = document.querySelector(selector).getBoundingClientRect(); return {left:r.left,right:r.right,width:r.width}; };
-      return {width:innerWidth,outerWidth:document.documentElement.scrollWidth,panel:bounds('#date-picker'),from:bounds('#release-from'),to:bounds('#release-to'),toggle:bounds('#date-toggle'),chips:[...document.querySelectorAll('[data-date-bound]')].map(chip => ({scrollWidth:chip.scrollWidth,clientWidth:chip.clientWidth}))};
+      return {width:innerWidth,outerWidth:document.documentElement.scrollWidth,panel:bounds('#date-picker'),from:bounds('#release-from'),to:bounds('#release-to'),toggle:bounds('#filter-category'),chips:[...document.querySelectorAll('[data-date-bound]')].map(chip => ({scrollWidth:chip.scrollWidth,clientWidth:chip.clientWidth}))};
     });
     layouts.push(layout);
     check(`${width}px date controls and chips fit without page overflow`, layout.outerWidth <= width && [layout.panel,layout.from,layout.to,layout.toggle].every(rect => rect.left >= 0 && rect.right <= width) && layout.chips.every(chip => chip.scrollWidth <= chip.clientWidth));
-    await page.locator('#tag-toggle').click();
+    await page.locator('#filter-category').selectOption('tag');
     check(`${width}px picker switching retains both active dates`, await page.locator('#date-picker').isHidden() && await page.locator('#tag-picker').isVisible() && (await view()).filters.releaseFrom === fixture.day && (await view()).filters.releaseTo === fixture.next);
   }
   check('Release date filtering produces no browser runtime errors', errors.length === 0);

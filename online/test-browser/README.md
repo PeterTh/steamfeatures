@@ -25,7 +25,9 @@ Run `highlight-checks.js` in the same way for column selection, URL persistence,
 
 Run `game-card-checks.js` for title-button pinning, Steam/SteamDB/Steamograph links, on-demand artwork, scrolling, keyboard focus, mobile layouts, failed images and stale lookup responses. It verifies that initial loading makes no artwork requests. Optional `screenshotDirectory` output captures the desktop and mobile cards.
 
-`layout-checks.js` checks how the matrix fits the viewport when panels open and close, the window resizes, and keyboard navigation reveals a highlighted column.
+`layout-checks.js` checks how the matrix fits the viewport when panels open and close, the window resizes, and keyboard navigation reveals a highlighted column. It also checks mobile Score scrolling and vertical scrolling from the table into the page at its boundaries.
+
+`responsive-checks.js` checks compact navigation, the native filter selector, Count and Legend disclosures, inline field labels, edge-to-edge tables, breakpoint transitions, draft/focus preservation, and library sharing from 320 to 3440 pixels. Use a fresh context with `hasTouch: true`; it imports only synthetic library data. Existing filter panels remain available through desktop tabs above 800px and the selector at narrower widths.
 
 `release-date-checks.js` checks inclusive day, month, and year bounds, independent settings, filter combinations, invalid dates and ranges, shared URLs, history, and mobile layouts. It also verifies ISO dates in controls, chips, game details, and the catalog update note. Expected results come from the served catalog.
 
@@ -39,9 +41,9 @@ Run `game-card-checks.js` for title-button pinning, Steam/SteamDB/Steamograph li
 
 `language-checks.js` verifies searchable per-language cards, regional variants, independent interface/audio/subtitle requirements and exclusions, combined filters, unchanged table columns and scores, removable chips, shared URLs, history, reset, keyboard focus, and layouts from 320 to 1440 pixels. It needs a full catalog with language support data.
 
-`search-tag-checks.js` checks whitespace and cursor preservation during slow title typing, normalized matching and URLs, and clickable game-card tags cycling through required, excluded, and off. It covers synchronized picker/chip state, keyboard and touch input, cards whose games are filtered out, focus restoration, hover previews, history, reload, reset, and mobile layout. Supply a page created with `hasTouch: true` for its mobile tap checks.
+`search-tag-checks.js` checks title clearing, pending-search cancellation, whitespace and cursor preservation during slow typing, normalized matching and URLs, and clickable game-card tags cycling through required, excluded, and off. It covers synchronized picker/chip state, keyboard and touch input, cards whose games are filtered out, focus restoration, hover previews, history, reload, reset, and mobile layout. Supply a page created with `hasTouch: true` for its mobile tap checks.
 
-Run all eight harnesses in Firefox and Chromium.
+Run the relevant harnesses in Edge and Firefox.
 
 `catalog-checks.cjs` runs the eight interface harnesses plus blocked-download, failure/retry, search-draft and worker-handover checks against the normal `dist/` build, in Edge and Firefox. `catalog-benchmark.cjs` compares its initial loading time against the same code and records served through the full-catalogue fallback. The comparison server strips only `current.progressive` from the reference manifest, and can pace catalogue transfers at 10 Mbps with 150 ms request latency.
 

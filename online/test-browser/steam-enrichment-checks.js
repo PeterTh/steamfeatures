@@ -96,7 +96,7 @@ async (page, options = {}) => {
     const cell = page.locator(`tr[data-game-id="${game.id}"] td[data-feature="10019"]`);
     check(`The Deck column shows ${rating} with the correct symbol`, await cell.getAttribute('data-status') === rating && await cell.locator('[aria-hidden="true"]').innerText() === mark);
     if (color) check(`${rating} has its distinct badge color`, await cell.locator('.check').evaluate((node, expected) => getComputedStyle(node).backgroundColor === expected, color));
-    const score = catalog.features.filter(feature => !feature.accessibility && !feature.multiplayer && game.featureIds.includes(feature.id)).reduce((sum, feature) => sum + feature.weight, 0);
+    const score = catalog.features.filter(feature => !feature.accessibility && !feature.multiplayer && !feature.remotePlay && game.featureIds.includes(feature.id)).reduce((sum, feature) => sum + feature.weight, 0);
     check(`${rating} scores only the overall hardware ratings`, (await view()).games.find(row => row.id === game.id).score === score);
   }
   await page.locator('#feature-10019 button').click();
@@ -106,7 +106,7 @@ async (page, options = {}) => {
   await page.locator('#compatibility-toggle').click();
   await page.locator('#feature-10019 button').click();
   await page.getByRole('button', { name: 'Highlight column', exact: true }).click();
-  check('The combined Deck column can be highlighted and shared', (await view()).highlight === 'steam-deck' && new URL(page.url()).searchParams.get('highlight') === 'steam-deck');
+  check('The combined Deck column can be highlighted and shared', (await view()).highlight === 'steam-deck' && new URL(page.url()).searchParams.get('highlight') === 'DCK');
   await page.keyboard.press('Escape');
   await page.goto(base + '?hw=1'); await settled();
   await page.waitForFunction(() => [...document.querySelectorAll('.feature-head .icon')].every(icon => icon instanceof SVGSVGElement && icon.getBBox().width > 0));
@@ -115,7 +115,8 @@ async (page, options = {}) => {
   await screenshot('hardware-desktop');
   for (const width of [320, 390, 768, 1440]) {
     await page.setViewportSize({ width, height: width < 768 ? 844 : 1050 });
-    await page.locator('#compatibility-toggle').click();
+    if (await page.locator('#filter-category').isVisible()) await page.locator('#filter-category').selectOption('compatibility');
+    else await page.locator('#compatibility-toggle').click();
     const layout = await page.evaluate(() => ({ width: innerWidth, outer: document.documentElement.scrollWidth,
       picker: document.querySelector('#compatibility-options').scrollWidth, pickerClient: document.querySelector('#compatibility-options').clientWidth,
       selectsFit: [...document.querySelectorAll('#compatibility-options select')].every(select => select.getBoundingClientRect().right <= innerWidth),
@@ -124,7 +125,8 @@ async (page, options = {}) => {
     check(`${width}px compatibility dropdowns fit without page overflow`, layout.outer <= width && layout.picker <= layout.pickerClient + 1 && layout.selectsFit);
     if (width < 768) check(`${width}px matrix retains horizontal scrolling`, layout.table > layout.tableClient);
     if ([390, 1440].includes(width)) await screenshot(`compatibility-${width}`);
-    await page.locator('#compatibility-toggle').click();
+    if (await page.locator('#filter-category').isVisible()) await page.locator('#compatibility-picker .picker-close').click();
+    else await page.locator('#compatibility-toggle').click();
     if (width === 390) await screenshot('hardware-mobile');
   }
   check('No browser runtime errors', errors.length === 0);

@@ -27,6 +27,11 @@ const textFields = [['q', 'search', 'q'], ['developer', 'developer-filter', 'dev
 const textFilterPatch = () => Object.fromEntries(textFields.map(([field, id]) => [field, $(id).value]));
 const reviewFields = [['minReviews', 'min-reviews', 'Minimum review count'], ['maxReviews', 'max-reviews', 'Maximum review count'],
   ['minRating', 'min-rating', 'Minimum review rating'], ['maxRating', 'max-rating', 'Maximum review rating']];
+const pickerKinds = [['feature', 'Features', 'active-count'], ['tag', 'Tags', 'active-tag-count'], ['review', 'Reviews', 'active-review-count'],
+  ['date', 'Release date', 'active-date-count'], ['compatibility', 'Compatibility', 'active-compatibility-count'], ['language', 'Languages', 'active-language-count'],
+  ['developer', 'Developers', 'active-developer-count'], ['library', 'User Library', 'active-library-count']];
+const compactLayout = matchMedia('(max-width:800px)'), compactLegend = matchMedia('(max-width:1100px)');
+let openPicker = null, headerDialogOrigin = null;
 let tipAnchor = null, tipPinned = false, currentColumn = null, suppressFocusTip = false, columnCells = new Map();
 let tipHideTimer, focusFeatureAfterRender = null;
 let preserveGameTip = false;
@@ -80,7 +85,8 @@ let gameCard = null, tipSearch = null, loadGameImage = createGameImageLoader(nul
     $('legend-absent-label').textContent = 'Not listed';
     $('legend-unknown-label').textContent = state.includeHardware ? 'Untested / Unknown' : 'Unknown';
     $('legend-playable').hidden = !state.includeHardware;
-    $('result-summary').textContent = `${fmt(matching)} matching games · ${visibleFeatures.length} counted features · ${latestResult.maxScore}-point scale`;
+    $('result-count').textContent = `${fmt(matching)} matching games`;
+    $('result-metrics').textContent = ` · ${visibleFeatures.length} counted features · ${latestResult.maxScore}-point scale`;
     $('page-summary').textContent = 'Page ' + fmt(latestResult.page) + ' of ' + fmt(latestResult.pageCount);
     $('page').value = latestResult.page; $('page').max = latestResult.pageCount;
     $('previous').disabled = latestResult.page <= 1; $('next').disabled = latestResult.page >= latestResult.pageCount;
@@ -187,13 +193,16 @@ let gameCard = null, tipSearch = null, loadGameImage = createGameImageLoader(nul
     revealHighlightPending = !!selected && (revealHighlightPending || reveal || !visible);
     if (revealHighlightPending) requestAnimationFrame(revealHighlightedColumn);
   }
+  function frozenColumnsRight() {
+    return $('matrix-head').querySelector(compactLayout.matches ? '.fixed-game' : '.fixed-score').getBoundingClientRect().right;
+  }
   function revealHighlightedColumn() {
     if (!revealHighlightPending || $('results').hidden) return;
     const selected = [...columns.values()].find(f => f.key === highlightedFeature);
     const header = selected && $('feature-' + selected.id);
     if (!header || !view.length) return;
     const region = $('matrix-region'), rect = header.getBoundingClientRect();
-    const left = $('matrix-head').querySelector('.fixed-score').getBoundingClientRect().right;
+    const left = frozenColumnsRight();
     const right = region.getBoundingClientRect().left + region.clientLeft + region.clientWidth;
     const delta = rect.left < left ? rect.left - left : rect.right > right ? rect.right - right : 0;
     if (delta) {
@@ -427,7 +436,7 @@ let gameCard = null, tipSearch = null, loadGameImage = createGameImageLoader(nul
     let left = Math.max(12, Math.min(r.left + r.width / 2 - t.width / 2, innerWidth - t.width - 12));
     let top = r.bottom + 9; if (top + t.height > innerHeight - 12) top = Math.max(12, r.top - t.height - 9);
     if (anchor.dataset.tip === 'game' && anchor.isConnected) {
-      const beside = $('matrix-head').querySelector('.fixed-score').getBoundingClientRect().right + 8;
+      const beside = frozenColumnsRight() + 8;
       if (beside + t.width <= innerWidth - 12) {
         left = beside;
         top = Math.max(12, Math.min(anchor.closest('tr').getBoundingClientRect().top, innerHeight - t.height - 12));
@@ -461,6 +470,7 @@ function syncLibraryControls() {
   }
   $('library-forget').hidden = userLibrary === null;
   $('active-library-count').textContent = libraryFields.filter(([kind]) => libraryFilters[kind]).length;
+  syncCompactCounts();
   $('library-status').textContent = (userLibrary === null ? 'No library imported.'
     : `${fmt(userLibrary.appIds.length)} owned app ${userLibrary.appIds.length === 1 ? 'ID' : 'IDs'}`
       + (userLibrary.wishlistIds === null ? '; wishlist data is missing from this file. Reimport the Steam JSON to filter your wishlist.'
@@ -756,6 +766,7 @@ function setFilters(patch, resetPage = true, keepGameTip = false) {
 function syncControls(preserveDateDraft = false, preserveSearchDraft = false, preserveCreditDraft = false, preserveReviewDraft = false) {
   // Normalize the query for matching and URLs without rewriting a title being typed.
   if (!preserveSearchDraft) $('search').value = state.q;
+  syncTitleClear();
   if (!preserveCreditDraft) for (const [role] of creditFields) $(role + '-filter').value = state[role];
   $('accessibility').checked = state.includeAccessibility;
   $('multiplayer').checked = state.includeMultiplayer;
@@ -1062,14 +1073,59 @@ function filterTagOptions() {
   $('tag-empty').textContent = data.tags.length ? 'No tags match your search.' : 'No tag data in this snapshot.';
 }
 function togglePicker(kind) {
-  const open = $(kind + '-picker').hidden;
-  for (const name of ['feature', 'tag', 'review', 'date', 'compatibility', 'language', 'developer', 'library']) {
-    const expanded = name === kind && open; $(name + '-picker').hidden = !expanded;
+  setOpenPicker(openPicker === kind ? null : kind);
+}
+function setOpenPicker(kind) {
+  if (kind && compactLayout.matches) setCountOpen(false);
+  openPicker = kind;
+  for (const [name] of pickerKinds) {
+    const expanded = name === kind; $(name + '-picker').hidden = !expanded;
     const searchControl = $(name + '-search-control'); if (searchControl) searchControl.hidden = !expanded;
     $(name + '-toggle').setAttribute('aria-expanded', String(expanded));
   }
-  if (kind === 'tag' && open) { buildTagPicker(); syncTagOptions(); }
-  if (kind === 'language' && open) { buildLanguagePicker(); syncLanguageOptions(); }
+  $('filter-category').value = kind ?? '';
+  if (kind === 'tag') { buildTagPicker(); syncTagOptions(); }
+  if (kind === 'language') { buildLanguagePicker(); syncLanguageOptions(); }
+  scheduleMatrixLayout();
+}
+function syncCompactCounts() {
+  for (const [kind, label, counter] of pickerKinds) $('filter-category').querySelector(`[value="${kind}"]`).textContent = `${label} (${$(counter).textContent})`;
+  $('count-active').textContent = ['multiplayer', 'hardware', 'remote-play', 'accessibility'].filter(id => $(id).checked).length;
+}
+function setCountOpen(open) {
+  if (open && compactLayout.matches) setOpenPicker(null);
+  $('count-toggle').setAttribute('aria-expanded', String(open));
+  $('count-options').parentElement.classList.toggle('count-open', open);
+  scheduleMatrixLayout();
+}
+function setMenuOpen(open, restoreFocus = false) {
+  $('header-menu').classList.toggle('is-open', open);
+  $('menu-toggle').setAttribute('aria-expanded', String(open));
+  $('menu-toggle').setAttribute('aria-label', open ? 'Close menu' : 'Open menu');
+  if (!open && restoreFocus && compactLayout.matches) $('menu-toggle').focus({ preventScroll: true });
+}
+function setLegendOpen(open, restoreFocus = false) {
+  $('legend-control').classList.toggle('is-open', open);
+  $('legend-toggle').setAttribute('aria-expanded', String(open));
+  if (!open && restoreFocus && compactLegend.matches) $('legend-toggle').focus({ preventScroll: true });
+}
+function syncResponsiveLayout() {
+  const focused = document.activeElement;
+  for (const [kind] of pickerKinds) {
+    const search = $(kind + '-search-control');
+    if (!search) continue;
+    const parent = compactLayout.matches ? $(kind + '-picker').querySelector('.compact-panel-header') : document.querySelector('.picker-tabs');
+    if (search.parentElement !== parent) parent.insertBefore(search, compactLayout.matches ? parent.lastElementChild : null);
+  }
+  setMenuOpen(false); setCountOpen(false);
+  if (focused === $('menu-toggle') && !compactLayout.matches) ($('presets').querySelector('[aria-pressed="true"]') ?? $('news')).focus({ preventScroll: true });
+  else if (focused === $('filter-category') && !compactLayout.matches) $(openPicker ? openPicker + '-toggle' : 'feature-toggle').focus({ preventScroll: true });
+  else if (!compactLayout.matches && focused.closest?.('.compact-panel-header')) $(openPicker + '-toggle').focus({ preventScroll: true });
+  else if (focused === $('count-toggle') && !compactLayout.matches) $('multiplayer').focus({ preventScroll: true });
+  else if (compactLayout.matches && focused.closest?.('.picker-toggle')) $('filter-category').focus({ preventScroll: true });
+  else if (compactLayout.matches && focused.closest?.('#count-options')) $('count-toggle').focus({ preventScroll: true });
+  else if (focused.isConnected && focused !== document.body && focused.getClientRects().length && document.activeElement !== focused) focused.focus({ preventScroll: true });
+  scheduleMatrixLayout();
 }
 function formatCatalogFile(file) {
   const compression = { brotli: 'Brotli', gzip: 'gzip', uncompressed: 'uncompressed' }[file.compression];
@@ -1086,16 +1142,22 @@ function updateMetadata() {
 function getView() { return { filters: state, library: { loaded: userLibrary !== null, active: hasLibraryFilters(), filters: { ...libraryFilters }, appCount: userLibrary?.appIds.length ?? 0, wishlistCount: userLibrary?.wishlistIds?.length ?? null }, highlight: highlightedFeature, matching, displayed: view.length, featureColumns: visibleFeatures.length, maxScore: latestResult?.maxScore, page: latestResult?.page, pageCount: latestResult?.pageCount, games: view.map(({ id, name, score, count, rank, reviews, positivePercent, releaseISO, earlyAccess, tagIds }) => ({ id, name, score, count, rank, reviews, positivePercent, releaseISO, earlyAccess, tags: (tagIds ?? []).map(id => data.tags[id]) })) }; }
 for (const preset of PRESETS) {
   const button = element('button', 'view-button'); button.append(icon(preset.id === 'feature-leaders' ? 'trophy' : 'warning'), element('span', '', preset.title)); button.type = 'button'; button.disabled = true; button.dataset.preset = preset.id; button.title = preset.description;
-  button.addEventListener('click', () => setFilters(preset.query)); $('presets').append(button);
+  button.addEventListener('click', () => { setFilters(preset.query); setMenuOpen(false, true); }); $('presets').append(button);
 }
 $('filters').addEventListener('submit', e => {
   e.preventDefault();
   const reviews = readReviewDraft();
   if (reviews) applyReleaseDates({ ...textFilterPatch(), ...reviews });
 });
+function syncTitleClear() { $('clear-search').hidden = $('search').value === ''; }
 for (const [field, id] of textFields) $(id).addEventListener('input', e => {
   clearTimeout(inputTimer); state = { ...state, [field]: e.target.value }; latestRequest = ++requestId;
+  if (id === 'search') syncTitleClear();
   inputTimer = setTimeout(() => setFilters(textFilterPatch()), 250);
+});
+$('clear-search').addEventListener('click', () => {
+  setFilters({ ...textFilterPatch(), q: '' });
+  $('search').focus({ preventScroll: true });
 });
 $('accessibility').addEventListener('change', e => setFilters({ includeAccessibility: e.target.checked }));
 $('multiplayer').addEventListener('change', e => setFilters({ includeMultiplayer: e.target.checked }));
@@ -1117,7 +1179,29 @@ for (const [, id] of reviewFields) {
 $('feature-search').addEventListener('input', e => { for (const label of $('feature-options').children) label.hidden = !label.dataset.name.includes(e.target.value.toLowerCase()); });
 $('tag-search').addEventListener('input', filterTagOptions);
 $('language-search').addEventListener('input', filterLanguageOptions);
-for (const kind of ['feature', 'tag', 'review', 'date', 'compatibility', 'language', 'developer', 'library']) $(kind + '-toggle').addEventListener('click', () => togglePicker(kind));
+for (const [kind, label] of pickerKinds) {
+  $(kind + '-toggle').addEventListener('click', () => togglePicker(kind));
+  const header = element('div', 'compact-panel-header');
+  const close = element('button', 'subtle-button picker-close'); close.type = 'button'; close.setAttribute('aria-label', 'Close ' + label + ' filters'); close.textContent = 'Close';
+  close.addEventListener('click', () => { setOpenPicker(null); $('filter-category').focus({ preventScroll: true }); });
+  header.append(element('span', 'compact-panel-label', label), close);
+  if ($(kind + '-search-control')) header.classList.add('has-search');
+  $(kind + '-picker').prepend(header);
+}
+$('filter-category').addEventListener('change', e => setOpenPicker(e.target.value || null));
+$('count-toggle').addEventListener('click', () => setCountOpen($('count-toggle').getAttribute('aria-expanded') !== 'true'));
+$('menu-toggle').addEventListener('click', () => { setLegendOpen(false); setMenuOpen($('menu-toggle').getAttribute('aria-expanded') !== 'true'); });
+$('legend-toggle').addEventListener('click', () => { setMenuOpen(false); setLegendOpen($('legend-toggle').getAttribute('aria-expanded') !== 'true'); });
+for (const [container, toggle, close] of [['header-menu', 'menu-toggle', setMenuOpen], ['legend-control', 'legend-toggle', setLegendOpen]]) {
+  document.addEventListener('pointerdown', e => { if (!$(container).contains(e.target) && !$(toggle).contains(e.target)) close(false); });
+  $(container).addEventListener('focusout', e => { if (e.relatedTarget && !$(container).contains(e.relatedTarget) && !$(toggle).contains(e.relatedTarget)) close(false); });
+}
+compactLayout.addEventListener('change', syncResponsiveLayout);
+compactLegend.addEventListener('change', () => {
+  if (!compactLegend.matches && document.activeElement === $('legend-toggle')) $('matrix-region').focus({ preventScroll: true });
+  setLegendOpen(false); scheduleMatrixLayout();
+});
+syncResponsiveLayout();
 for (const id of ['reset', 'empty-reset', 'error-reset']) $(id).addEventListener('click', resetFilters);
 $('library-file').addEventListener('change', importUserLibrary);
 for (const [kind] of libraryFields) for (const action of ['has', 'not']) $(`library-${kind}-${action}`).addEventListener('click', () => setLibraryFilter(kind, action));
@@ -1131,8 +1215,16 @@ $('go-page').addEventListener('click', goToPage);
 $('page').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); goToPage(); } });
 for (const [id, name] of [['news', 'bell'], ['about', 'info']]) {
   $(id).prepend(icon(name));
-  $(id).addEventListener('click', () => { hideTip(); $(id + '-dialog').showModal(); $(id + '-content').scrollTop = 0; });
+  $(id).addEventListener('click', () => {
+    hideTip(); headerDialogOrigin = compactLayout.matches ? id : null;
+    setMenuOpen(false); setLegendOpen(false);
+    $(id + '-dialog').showModal(); $(id + '-content').scrollTop = 0;
+  });
   $(id + '-close').addEventListener('click', () => $(id + '-dialog').close());
+  $(id + '-dialog').addEventListener('close', () => {
+    if (headerDialogOrigin !== id) return;
+    headerDialogOrigin = null; $(compactLayout.matches ? 'menu-toggle' : id).focus({ preventScroll: true });
+  });
 }
 $('share').prepend(icon('link'));
 $('compatibility-close').addEventListener('click', () => $('compatibility-dialog').close());
@@ -1192,7 +1284,12 @@ window.addEventListener('storage', event => {
   $('tooltip').addEventListener('focusin', () => clearTimeout(tipHideTimer));
   $('tooltip').addEventListener('focusout', e => { if (!$('tooltip').contains(e.relatedTarget) && !tipAnchor?.contains(e.relatedTarget)) scheduleTipHide(); });
   document.addEventListener('pointerdown', e => { if (tipAnchor && !tipAnchor.contains(e.target) && !$('tooltip').contains(e.target)) hideTip(); });
-  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeTipAndRestoreFocus(); });
+  document.addEventListener('keydown', e => {
+    if (e.key !== 'Escape' || e.defaultPrevented || document.querySelector('dialog[open]')) return;
+    if ($('menu-toggle').getAttribute('aria-expanded') === 'true') { setMenuOpen(false, true); e.preventDefault(); }
+    else if ($('legend-toggle').getAttribute('aria-expanded') === 'true') { setLegendOpen(false, true); e.preventDefault(); }
+    else closeTipAndRestoreFocus();
+  });
   $('matrix-region').addEventListener('scroll', () => { if (!preserveGameTip && !(tipPinned && tipAnchor?.dataset.tip === 'game')) hideTip(); }, { passive: true });
   window.addEventListener('resize', () => {
     if (tipPinned && tipAnchor?.dataset.tip === 'game') {

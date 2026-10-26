@@ -7,6 +7,10 @@
   const select = async value => page.locator('#library-file').setInputFiles({ name: 'library.json', mimeType: 'application/json', buffer: Buffer.from(typeof value === 'string' ? value : JSON.stringify(value)) });
   const set = async patch => { await page.evaluate(patch => window.steamFeatureAtlas.setFilters(patch), patch); await settled(); };
   const rule = async (kind, action) => { await page.locator(`#library-${kind}-${action}`).click(); await settled(); };
+  const openLibrary = async (tab = page) => {
+    if (await tab.locator('#filter-category').isVisible()) await tab.locator('#filter-category').selectOption('library');
+    else await tab.locator('#library-toggle').click();
+  };
   const appIds = view => view.games.map(game => game.id).sort((a, b) => a - b);
   page.on('pageerror', error => errors.push(error.message));
   page.on('request', request => requests.push({ url: request.url(), method: request.method(), body: request.postData() }));
@@ -25,7 +29,7 @@
   });
   await page.goto(baseURL); await settled();
   check('A new browser starts without a library restriction', !(await state()).library.loaded && (await state()).matching > 2);
-  await page.locator('#library-toggle').click();
+  await openLibrary();
   check('The new tab opens and links to the Steam library export',
     await page.locator('#library-picker').isVisible() &&
     await page.locator('#library-help a').getAttribute('href') === 'https://store.steampowered.com/dynamicstore/userdata/');
@@ -110,7 +114,7 @@
   await page.getByRole('button', { name: 'Remove required owned games filter', exact: true }).click(); await settled();
   check('The removable chip disables filtering while retaining the imported IDs', !(await state()).library.active && (await state()).library.loaded && (await state()).matching > 2);
   check('The share warning disappears when library filtering is disabled', await page.locator('#share-library-warning').isHidden());
-  await page.locator('#library-toggle').click();
+  await openLibrary();
   await rule('owned', 'has');
   await page.locator('#reset').click(); await settled();
   check('Reset filters disables the local restriction without erasing the library', !(await state()).library.active && (await state()).library.loaded);
@@ -142,7 +146,7 @@
     await page.evaluate(() => localStorage.getItem('steam-feature-atlas.user-library.v1')) === null);
   await page.reload(); await settled();
   check('Forgotten data stays absent after reload', !(await state()).library.loaded);
-  await page.locator('#library-toggle').click();
+  await openLibrary();
   await select({ rgOwnedApps: [620], rgWishlist: [570] });
   await page.waitForFunction(() => window.steamFeatureAtlas.getView().library.active); await settled();
   const companion = await page.context().newPage(), stale = await page.context().newPage();
@@ -151,7 +155,7 @@
     for (const tab of [companion, stale]) {
       await tab.goto(baseURL);
       await tab.waitForFunction(() => window.steamFeatureAtlas?.getView().library.loaded && !document.getElementById('results').hasAttribute('aria-busy'));
-      await tab.locator('#library-toggle').click();
+      await openLibrary(tab);
     }
     // A delayed event simulates an open tab that has not observed Forget yet.
     await stale.evaluate(() => { window.delayLibraryStorageEvents = true; });

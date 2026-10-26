@@ -4,12 +4,15 @@ async (page, options = {}) => {
   const check = (name, condition) => { if (!condition) throw new Error(name); checks.push(name); };
   const view = () => page.evaluate(() => window.steamFeatureAtlas.getView());
   const settled = () => page.waitForFunction(() => window.steamFeatureAtlas?.getView().page && !document.querySelector('#results').hidden && !document.querySelector('#results').hasAttribute('aria-busy'));
-  const searchSettled = q => page.waitForFunction(q => window.steamFeatureAtlas?.getView().filters.q === q && !document.querySelector('#results').hasAttribute('aria-busy'), q);
+  const searchSettled = q => page.waitForFunction(q => window.steamFeatureAtlas?.getView().filters.q === q &&
+    (new URLSearchParams(location.search).get('q') ?? '') === q && !document.querySelector('#results').hasAttribute('aria-busy'), q);
   page.on('pageerror', error => errors.push(error.message));
   await page.setViewportSize({ width: 1440, height: 1050 }); await page.goto(base); await settled();
 
   const search = page.locator('#search');
+  check('An empty title has no clear button', await page.locator('#clear-search').isHidden());
   await search.fill('Elden '); await searchSettled('Elden');
+  check('Typing a title reveals its clear button', await page.getByRole('button', { name: 'Clear game title', exact: true }).isVisible());
   check('A trailing space survives the search debounce and worker response', await search.inputValue() === 'Elden ');
   check('Search synchronization leaves the typing cursor in place', await search.evaluate(input => input.selectionStart === 6 && input.selectionEnd === 6));
   await search.pressSequentially('Ring', { delay: 300 }); await searchSettled('Elden Ring');
@@ -22,7 +25,23 @@ async (page, options = {}) => {
   await search.press('Enter'); await settled();
   check('Submitting filters preserves the raw title draft', await search.inputValue() === draft);
   await page.locator('#reset').click(); await settled();
-  check('Reset explicitly clears the title draft', await search.inputValue() === '');
+  check('Reset explicitly clears the title draft and its button', await search.inputValue() === '' && await page.locator('#clear-search').isHidden());
+
+  await page.locator('#release').selectOption('released-ea'); await settled();
+  await search.fill('Portal 2'); await searchSettled('Portal 2');
+  await page.locator('#clear-search').click(); await searchSettled('');
+  check('Clearing the title preserves other filters and returns input focus', await search.inputValue() === '' && await page.locator('#clear-search').isHidden() &&
+    await search.evaluate(input => input === document.activeElement) && (await view()).filters.release === 'released-ea' && !new URL(page.url()).searchParams.has('q'));
+  await page.goBack(); await searchSettled('Portal 2');
+  check('Back restores both the title and its clear button', await search.inputValue() === 'Portal 2' && await page.locator('#clear-search').isVisible());
+  await page.goForward(); await searchSettled('');
+  check('Forward restores the cleared field and hidden button', await search.inputValue() === '' && await page.locator('#clear-search').isHidden());
+  await search.fill('Pending title'); await page.locator('#clear-search').click(); await searchSettled(''); await page.waitForTimeout(350);
+  check('A pending search debounce cannot restore a cleared title', await search.inputValue() === '' && (await view()).filters.q === '' && !new URL(page.url()).searchParams.has('q'));
+  await search.fill('   ');
+  check('Whitespace-only drafts can also be cleared', await page.locator('#clear-search').isVisible());
+  await page.locator('#clear-search').click(); await searchSettled('');
+  await page.locator('#reset').click(); await settled();
 
   const scrolledGame = [...(await view()).games].reverse().find(game => game.tags.length);
   const scrolledTrigger = page.locator(`tr[data-game-id="${scrolledGame.id}"] .game-name`);
@@ -85,7 +104,8 @@ async (page, options = {}) => {
   check('Removing an active chip also clears the card tag state', await tag().getAttribute('aria-pressed') === 'false');
   await page.keyboard.press('Escape');
 
-  await page.setViewportSize({ width: 390, height: 844 }); await trigger().click();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.mouse.move(0, 0); await page.keyboard.press('Escape'); await trigger().tap();
   await tag().tap(); await settled();
   check('Mobile tap applies the tag filter and keeps the card inside the viewport', (await view()).filters.hasTags.includes(name) && await page.locator('#tooltip').evaluate(node => { const rect = node.getBoundingClientRect(); return rect.left >= 0 && rect.right <= innerWidth && rect.top >= 0 && rect.bottom <= innerHeight && node.scrollWidth <= node.clientWidth; }) && await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
   if (options.screenshotDirectory) await page.screenshot({ path: String(options.screenshotDirectory).replace(/[\\/]+$/, '') + '/game-tags-mobile.png' });
@@ -93,6 +113,10 @@ async (page, options = {}) => {
   check('Mobile taps complete the exclusion and clear cycle', !(await view()).filters.hasTags.includes(name) && !(await view()).filters.notTags.includes(name) && await page.locator('#tooltip').isVisible());
   await page.keyboard.press('Escape'); await page.locator('#reset').click(); await settled();
   check('Reset clears card filters and their active chips', !(await view()).filters.hasTags.length && !(await view()).filters.notTags.length && await page.locator('#active-filters .tag-chip').count() === 0);
+  await search.fill('Portal 2'); await searchSettled('Portal 2');
+  await page.locator('#clear-search').tap(); await searchSettled('');
+  check('A phone tap clears the title and keeps focus ready for typing', await search.inputValue() === '' && await page.locator('#clear-search').isHidden() &&
+    await search.evaluate(input => input === document.activeElement) && (await view()).matching > 50);
   check('No browser runtime errors', errors.length === 0);
   return { passed: checks.length, checks, errors };
 }

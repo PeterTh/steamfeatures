@@ -84,7 +84,7 @@ async (page, options = {}) => {
   check('Feature picker uses two buttons per feature instead of selects', await page.locator('#feature-options select').count() === 0 && await page.locator('#feature-options .feature-action').count() === dataset.features * 2);
   await page.getByRole('button', {name:'Require Steam Achievements',exact:true}).click(); await settled();
   await page.getByRole('button', {name:'Exclude Steam Cloud',exact:true}).click(); await settled();
-  v = await view(); check('Require and exclude combine, retained in URL', v.filters.has.includes(22) && v.filters.not.includes(23) && page.url().includes('steam-achievements') && page.url().includes('steam-cloud'));
+  v = await view(); check('Require and exclude combine, retained in URL', v.filters.has.includes(22) && v.filters.not.includes(23) && new URL(page.url()).searchParams.get('has') === 'ACH' && new URL(page.url()).searchParams.get('not') === 'CLD');
   check('Active feature and review filter chips are removable buttons', await page.locator('#active-filters button').count() === 3);
   check('Plus and minus buttons expose active states', await page.getByRole('button', {name:'Require Steam Achievements',exact:true}).getAttribute('aria-pressed') === 'true' && await page.getByRole('button', {name:'Exclude Steam Cloud',exact:true}).getAttribute('aria-pressed') === 'true');
   await page.locator('#active-filters button.not').click(); await settled(); check('Remove only selected constraint', (await view()).filters.has.length === 1 && (await view()).filters.not.length === 0);
@@ -94,7 +94,7 @@ async (page, options = {}) => {
   await page.locator('button[data-preset="missing-cloud"]').click(); await settled(); v = await view();
   check('Missing Cloud preset strict review boundary', v.filters.minReviews === 1001 && v.filters.has.includes(2) && v.filters.not.includes(23) && v.filters.sort === 'reviews-desc' && v.games.every(g => g.reviews > 1000));
   check('Hall of shame only contains Single-player games', await page.locator('#matrix-body td[data-feature="2"][data-supported="true"]').count() === v.displayed);
-  check('Hall of shame explicitly excludes MMOs', v.filters.not.includes(20) && page.url().includes('mmo'));
+  check('Hall of shame explicitly excludes MMOs', v.filters.not.includes(20) && new URL(page.url()).searchParams.getAll('not').some(value => value.split(',').includes('MMO')));
   check('Hall of shame excludes MMORPG tags independently of the MMO badge', v.filters.notTags.includes('MMORPG') && v.games.every(g => !g.tags.includes('MMORPG')) && await page.evaluate(() => new URLSearchParams(location.search).getAll('notTag').includes('MMORPG')));
   await page.locator('#multiplayer').check(); await settled(); check('Hall of shame rows have no MMO badge', await page.locator('#matrix-body td[data-feature="20"][data-supported="true"]').count() === 0); await page.locator('#multiplayer').uncheck(); await settled();
   check('Missing feature caveat visible', await page.locator('#view-note').isVisible());
@@ -187,11 +187,11 @@ async (page, options = {}) => {
   await page.setViewportSize({width:390,height:844});
   check('Mobile has no outer horizontal overflow', await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
   check('Matrix keeps intentional horizontal scrolling', await page.locator('#matrix-region').evaluate(el => el.scrollWidth > el.clientWidth));
-  await page.locator('#feature-toggle').click();
+  await page.locator('#filter-category').selectOption('feature');
   check('Mobile feature picker stays inside the viewport', await page.locator('#feature-options').evaluate(el => el.scrollWidth <= el.clientWidth + 1) && await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
-  await page.locator('#tag-toggle').click();
+  await page.locator('#filter-category').selectOption('tag');
   check('Mobile tag picker stays inside the viewport', await page.locator('#tag-options').evaluate(el => el.scrollWidth <= el.clientWidth + 1) && await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
-  await page.locator('#tag-toggle').click();
+  await page.locator('#tag-picker .picker-close').click();
   await screenshot('mobile');
   await page.setViewportSize({width:1440,height:1050});
   await screenshot('desktop');

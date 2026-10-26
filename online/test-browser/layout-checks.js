@@ -39,19 +39,25 @@ async (page, options = {}) => {
   await page.locator('#feature-toggle').click();
   await page.setViewportSize({width:768,height:1050}); await page.goto(base); await settled();
   const partial = await page.evaluate(() => {
-    const region = document.querySelector('#matrix-region'), header = document.querySelector('#feature-62');
+    const region = document.querySelector('#matrix-region'), header = document.querySelector('.feature-head:last-child');
+    const gameLeft = document.querySelector('#matrix-head .fixed-game').getBoundingClientRect().left;
+    const scoreLeft = document.querySelector('#matrix-head .fixed-score').getBoundingClientRect().left;
     region.scrollTop = 150;
     region.scrollLeft += header.getBoundingClientRect().right - (region.getBoundingClientRect().left + region.clientLeft + region.clientWidth) - 10;
     header.querySelector('button').focus({preventScroll:true});
-    return {scrollLeft:region.scrollLeft,scrollTop:region.scrollTop};
+    return {scrollLeft:region.scrollLeft,scrollTop:region.scrollTop,headerId:header.id,gameLeft,scoreLeft};
   });
+  check('Compact tables keep titles pinned while Score scrolls with features', await page.evaluate(previous =>
+    Math.abs(document.querySelector('#matrix-head .fixed-game').getBoundingClientRect().left-previous.gameLeft) <= 1 &&
+    Math.abs(document.querySelector('#matrix-head .fixed-score').getBoundingClientRect().left-(previous.scoreLeft-previous.scrollLeft)) <= 1, partial));
   await page.keyboard.press('Enter');
+  const featureKey = await page.locator('#tooltip .highlight-button').getAttribute('data-feature-key');
   await page.locator('#tooltip .highlight-button').focus(); await page.keyboard.press('Enter');
-  await page.waitForFunction(() => window.steamFeatureAtlas.getView().highlight === 'family-sharing');
+  await page.waitForFunction(key => window.steamFeatureAtlas.getView().highlight === key, featureKey);
   await layout('keyboard reveal');
   check('Revealing a partially hidden column keeps keyboard focus and vertical position', await page.evaluate(previous => {
-    const region = document.querySelector('#matrix-region'), header = document.querySelector('#feature-62'), bounds = header.getBoundingClientRect();
-    return document.activeElement === header.querySelector('button') && region.scrollLeft > previous.scrollLeft && region.scrollTop === previous.scrollTop && bounds.left >= document.querySelector('#matrix-head .fixed-score').getBoundingClientRect().right - 1 && bounds.right <= region.getBoundingClientRect().left + region.clientLeft + region.clientWidth + 1;
+    const region = document.querySelector('#matrix-region'), header = document.getElementById(previous.headerId), bounds = header.getBoundingClientRect();
+    return document.activeElement === header.querySelector('button') && region.scrollLeft > previous.scrollLeft && region.scrollTop === previous.scrollTop && bounds.left >= document.querySelector('#matrix-head .fixed-game').getBoundingClientRect().right - 1 && bounds.right <= region.getBoundingClientRect().left + region.clientLeft + region.clientWidth + 1;
   }, partial));
   await page.evaluate(() => window.steamFeatureAtlas.setFilters({ includeMultiplayer: true, includeHardware: true, includeRemotePlay: true, includeAccessibility: true })); await settled();
   const wideLayouts = [];
@@ -72,6 +78,31 @@ async (page, options = {}) => {
   check('All columns fit once the viewport is wide enough', !wideLayouts.at(-1).overflow);
   await page.evaluate(() => window.steamFeatureAtlas.setFilters({ includeMultiplayer: false, includeHardware: false, includeRemotePlay: false, includeAccessibility: false })); await settled(); await layout('default columns on an ultrawide display');
   check('A matrix that fits retains the normal content width', await page.evaluate(() => Math.abs(document.querySelector('#matrix-region').getBoundingClientRect().width - document.querySelector('#filters').getBoundingClientRect().width) <= 1));
+  await page.setViewportSize({width:780,height:360}); await page.goto(base); await settled();
+  await page.waitForFunction(() => window.steamFeatureAtlas.getLoadState().fullReady);
+  await layout('phone landscape scrolling');
+  const wheel = async (position, delta) => {
+    // Each case represents a fresh gesture, rather than an ongoing wheel transaction.
+    await page.reload(); await settled();
+    await page.waitForFunction(() => window.steamFeatureAtlas.getLoadState().fullReady);
+    await layout('landscape scroll at ' + position);
+    const before = await page.evaluate(position => {
+      const region = document.querySelector('#matrix-region');
+      scrollTo(0,150);
+      region.scrollTop = position === 'top' ? 0 : position === 'bottom' ? region.scrollHeight : 200;
+      const rect = region.getBoundingClientRect();
+      return {page:scrollY,table:region.scrollTop,x:rect.left+14,y:Math.min(innerHeight-20,Math.max(20,rect.top+120))};
+    },position);
+    await page.mouse.move(before.x,before.y); await page.mouse.wheel(0,delta);
+    await page.waitForTimeout(300);
+    return {before,after:await page.evaluate(() => ({page:scrollY,table:document.querySelector('#matrix-region').scrollTop}))};
+  };
+  let scroll = await wheel('middle',100);
+  check('Landscape scrolling within the table keeps the page still', scroll.after.table > scroll.before.table && Math.abs(scroll.after.page-scroll.before.page) <= 1);
+  scroll = await wheel('top',-100);
+  check('Scrolling past the first row moves the page upward', scroll.after.page < scroll.before.page && scroll.after.table === 0);
+  scroll = await wheel('bottom',100);
+  check('Scrolling past the last row moves the page downward', scroll.after.page > scroll.before.page && Math.abs(scroll.after.table-scroll.before.table) <= 1);
   check('Layout resizing produces no browser or ResizeObserver errors', errors.length === 0);
   layouts.push({label:'wide layouts',measurements:wideLayouts});
   return {passed:checks.length,checks,layouts,errors};

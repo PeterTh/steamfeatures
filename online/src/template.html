@@ -24,30 +24,40 @@
   <main>
     <header class="masthead">
       <div class="brand"><img class="brand-mark" src="./brand.svg" alt="" aria-hidden="true" width="48" height="36"><h1>Steam Feature Atlas</h1></div>
+      <button id="menu-toggle" class="subtle-button menu-toggle" type="button" aria-label="Open menu" aria-expanded="false" aria-controls="header-menu"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
+      <div id="header-menu" class="header-menu">
       <nav class="views" aria-label="Views"><div id="presets"></div></nav>
       <div class="header-actions">
         <button id="news" type="button" class="subtle-button" aria-haspopup="dialog" aria-controls="news-dialog"><span>News</span></button>
         <button id="about" type="button" class="subtle-button" aria-haspopup="dialog" aria-controls="about-dialog"><span>About &amp; FAQ</span></button>
         <button id="share" type="button" class="subtle-button"><span id="share-label">Copy link</span><svg id="share-library-warning" class="icon share-library-warning" viewBox="0 0 24 24" aria-hidden="true" hidden><use href="#icon-warning"/></svg></button>
       </div>
+      </div>
       <span id="share-status" class="sr-only" role="status"></span>
     </header>
     <form id="filters" class="query-panel" aria-label="Filter games">
       <fieldset id="query-controls" disabled>
         <div class="search-row">
-          <label class="search-label" for="search">Game title<input type="search" id="search" placeholder="Find a game by title…" autocomplete="off"></label>
-          <label for="release">Release status<select id="release"><option value="released">Released</option><option value="released-ea">Released + Early Access</option><option value="early-access">Early Access</option><option value="upcoming">Upcoming</option><option value="all">All / unknown</option></select></label>
-          <div class="sort-control"><label for="sort">Sort by</label><div class="sort-inputs"><select id="sort"><option value="score">Feature Score</option><option value="features">Feature Count</option><option value="rating">Review Score</option><option value="reviews">Review Count</option><option value="title">Title</option><option value="release">Release date</option></select><div class="sort-direction" role="group" aria-label="Sort direction"><button id="sort-asc" type="button" aria-label="Sort ascending" aria-pressed="false" title="Ascending"><svg class="icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M12 20V4m-6 6 6-6 6 6"/></svg></button><button id="sort-desc" type="button" aria-label="Sort descending" aria-pressed="true" title="Descending"><svg class="icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M12 4v16m-6-6 6 6 6-6"/></svg></button></div></div></div>
+          <div class="search-label"><label class="sr-only" for="search">Game title</label><input type="search" id="search" placeholder="Find a game by title…" autocomplete="off"><button id="clear-search" class="search-clear" type="button" aria-label="Clear game title" title="Clear game title" hidden><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div>
+          <label class="release-control" for="release"><span>Status:</span><select id="release" aria-label="Release status"><option value="released">Released</option><option value="released-ea">Released + Early Access</option><option value="early-access">Early Access</option><option value="upcoming">Upcoming</option><option value="all">All / unknown</option></select></label>
+          <div class="sort-control"><label for="sort">Sort:</label><div class="sort-inputs"><select id="sort" aria-label="Sort by"><option value="score">Feature Score</option><option value="features">Feature Count</option><option value="rating">Review Score</option><option value="reviews">Review Count</option><option value="title">Title</option><option value="release">Release date</option></select><div class="sort-direction" role="group" aria-label="Sort direction"><button id="sort-asc" type="button" aria-label="Sort ascending" aria-pressed="false" title="Ascending"><svg class="icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M12 20V4m-6 6 6-6 6 6"/></svg></button><button id="sort-desc" type="button" aria-label="Sort descending" aria-pressed="true" title="Descending"><svg class="icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M12 4v16m-6-6 6 6 6-6"/></svg></button></div></div></div>
         </div>
         <div class="filter-row">
-          <div class="count-controls" role="group" aria-label="Count optional features">
+          <div class="compact-controls">
+            <label class="sr-only" for="filter-category">Filter category</label>
+            <select id="filter-category" aria-controls="feature-picker tag-picker review-picker date-picker compatibility-picker language-picker developer-picker library-picker">
+              <option value="">Filters…</option><option value="feature">Features (0)</option><option value="tag">Tags (0)</option><option value="review">Reviews (1)</option><option value="date">Release date (0)</option><option value="compatibility">Compatibility (0)</option><option value="language">Languages (0)</option><option value="developer">Developers (0)</option><option value="library">User Library (0)</option>
+            </select>
+            <button id="count-toggle" class="subtle-button count-toggle" type="button" aria-expanded="false" aria-controls="count-options">Count <span id="count-active" class="pill">0</span><svg class="icon disclosure-chevron" viewBox="0 0 16 16" aria-hidden="true"><path d="m6 3 5 5-5 5"/></svg></button>
+          </div>
+          <div id="count-options" class="count-controls" role="group" aria-label="Count optional features">
             <span class="picker-label">Count:</span>
             <label class="toggle-control" title="Include multiplayer modes, turn notifications, and chat accessibility in columns, counts, and scores."><input id="multiplayer" type="checkbox"><span class="switch" aria-hidden="true"></span><span>Multiplayer</span></label>
             <label class="toggle-control" title="Include one compatibility rating each for Steam Deck, Steam Machine, Steam Frame and SteamOS in columns, counts and scores."><input id="hardware" type="checkbox"><span class="switch" aria-hidden="true"></span><span>Compatibility</span></label>
             <label class="toggle-control" title="Include Remote Play and GeForce NOW in columns, counts and scores."><input id="remote-play" type="checkbox"><span class="switch" aria-hidden="true"></span><span>Remote Play</span></label>
             <label class="toggle-control" title="Include accessibility features in columns, counts, and scores."><input id="accessibility" type="checkbox"><span class="switch" aria-hidden="true"></span><span>Accessibility</span></label>
           </div>
-          <button id="reset" type="button" class="reset-button">Reset filters</button>
+          <button id="reset" type="button" class="reset-button" aria-label="Reset filters"><span class="reset-full">Reset filters</span><span class="reset-short">Reset</span></button>
         </div>
         <div class="filter-pickers">
           <div class="picker-tabs" aria-label="Game filters">
@@ -136,7 +146,7 @@
     <p id="catalog-progress" class="language-help" role="status" hidden><span id="catalog-status"></span> <button id="catalog-retry" class="subtle-button" type="button" hidden>Retry</button></p>
     <div id="loading" class="loading-state" role="status"><span class="loading-dot"></span><span id="loading-message">Loading the game catalog…</span></div>
     <section id="results" aria-label="Matching games" hidden>
-      <div class="table-toolbar"><div class="result-info"><p id="result-summary" role="status" aria-live="polite"></p><button id="highlight-chip" class="filter-chip highlight-chip" type="button" hidden></button></div><div class="legend"><span><b class="check">✓</b> <span id="legend-listed-label">Listed</span></span><span id="legend-playable" hidden><b class="check playable">✓</b> Playable</span><span><b class="check neutral">✓</b> Zero score</span><span><b class="check negative">−</b> Negative score</span><span><b class="legend-dash">–</b> <span id="legend-absent-label">Not listed</span></span><span><b>?</b> <span id="legend-unknown-label">Unknown</span></span><span class="hover-hint">Hover or tap icons for details</span></div></div>
+      <div class="table-toolbar"><div class="result-info"><p id="result-summary" role="status" aria-live="polite"><span id="result-count"></span><span id="result-metrics" class="result-metrics"></span></p><button id="highlight-chip" class="filter-chip highlight-chip" type="button" hidden></button></div><div id="legend-control" class="legend-control"><button id="legend-toggle" class="subtle-button legend-toggle" type="button" aria-expanded="false" aria-controls="legend-body">Legend</button><div id="legend-body" class="legend"><span><b class="check">✓</b> <span id="legend-listed-label">Listed</span></span><span id="legend-playable" hidden><b class="check playable">✓</b> Playable</span><span><b class="check neutral">✓</b> Zero score</span><span><b class="check negative">−</b> Negative score</span><span><b class="legend-dash">–</b> <span id="legend-absent-label">Not listed</span></span><span><b>?</b> <span id="legend-unknown-label">Unknown</span></span><span class="hover-hint">Hover or tap icons for details</span></div></div></div>
       <p id="view-note" class="view-note" hidden></p>
       <div id="matrix-region" class="matrix-region" role="region" aria-label="Scrollable game feature matrix" tabindex="0">
         <table id="matrix"><caption class="sr-only">Steam games, weighted feature scores, and advertised features. Equal scores or counts share a rank when sorted by that measure.</caption><thead id="matrix-head"></thead><tbody id="matrix-body"></tbody></table>
@@ -144,7 +154,8 @@
       </div>
       <nav class="pagination" aria-label="Result pages"><button id="previous" type="button">← Previous</button><span id="page-summary"></span><label for="page" class="sr-only">Go to page</label><input id="page" type="number" min="1" value="1" inputmode="numeric"><button id="go-page" type="button">Go</button><button id="next" type="button">Next →</button></nav>
     </section>
-    <details class="methodology"><summary>About the data &amp; counting rules <span class="footer-meta"><span id="package-summary"></span><span class="copyright">Steam Feature Atlas © 2026 Peter Thoman</span></span></summary>
+    <footer class="site-footer">
+    <details class="methodology"><summary>About the data &amp; counting rules</summary>
       <div class="method-content">
         <p><strong>Feature Score:</strong> Steam Cloud +3; Steam Achievements +2; In-App Purchases, Third-party DRM, Third-party account required and No keyboard/mouse support −1; Third-party Anti-Cheat −1 when kernel mode is disclosed and 0 otherwise; Valve Anti-Cheat, Gamepad Recommended, Includes Source SDK and VR Only 0; other ordinary features +1. Optional Steam hardware ratings award +1 for verified/supported, −1 for unsupported, and 0 for playable or untested. Each hardware target occupies one column and counts once when its rating is known. Feature Count includes zero- and negative-point badges. The maximum score sums positive weights.</p>
         <p><strong>Features?</strong> reflects Steam’s published disclosures. Explicit no-DRM declarations and wholly optional accounts do not incur a penalty; accounts required for particular modes or features do. Third-party Anti-Cheat (TAC) excludes VAC alone; a game may list both TAC and VAC. Click these entries for the publisher’s qualifications and anti-cheat details. Missing disclosures do not verify the absence of DRM, account requirements or anti-cheat.</p>
@@ -156,10 +167,18 @@
         <p class="legal-note">PlayStation and SteamOS icon outlines: <a href="https://shinmera.com/promptfont" target="_blank" rel="noopener noreferrer">PromptFont by Shinmera (Yukari Hafner)</a> (<a href="./fonts/PromptFont-LICENSE.txt">SIL Open Font License</a>).<br>Steam and the Steam logo are trademarks of Valve Corporation. All other trademarks are property of their respective owners.<br>Steam Feature Atlas is not affiliated with Valve or Steam.</p>
       </div>
     </details>
+    <div class="footer-meta"><span id="package-summary"></span><span class="copyright">Steam Feature Atlas © 2026 Peter Thoman</span></div>
+    </footer>
   </main>
   <dialog id="news-dialog" class="text-dialog" aria-labelledby="news-title">
     <div class="text-dialog-header"><h2 id="news-title">News</h2><button id="news-close" type="button" class="text-dialog-close" aria-label="Close News" autofocus><svg class="icon" aria-hidden="true" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div>
     <div id="news-content" class="text-dialog-content" tabindex="0" role="region" aria-label="News history">
+      <h3><time datetime="2026-10-26">2026-10-26</time></h3>
+      <ul>
+        <li>Improved the layout on phones and narrow windows, with compact menus and filters, more room for game titles, and a table that uses the full screen width.</li>
+        <li>Added a clear button to the game-title search.</li>
+        <li>Improved table scrolling on phones, including letting Score scroll alongside the feature columns.</li>
+      </ul>
       <h3><time datetime="2026-10-24">2026-10-24</time></h3>
       <ul>
         <li>Added user library filtering. This allows you to show only games in your Steam library (or that of someone else, if they share their json file). Everything is still entirely browser-local.</li>

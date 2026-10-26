@@ -75,7 +75,7 @@ async (page, options = {}) => {
   await page.locator('#share').click();
   check('Copy Link includes the highlighted feature and current filters', await page.evaluate(() => {
     const url = new URL(window.highlightCheckCopiedURL);
-    return url.searchParams.get('highlight') === 'steam-achievements' && url.searchParams.get('q') === 'Portal';
+    return url.searchParams.get('highlight') === 'ACH' && url.searchParams.get('q') === 'Portal';
   }));
   await page.goto(base + '?q=Portal&highlight=does-not-exist'); await settled();
   check('An invalid highlight is ignored while valid filters remain active', (await view()).highlight === null && (await view()).filters.q === 'Portal' && (await view()).games.every(game => game.name.toLowerCase().includes('portal')) && await page.locator('#error').isHidden());
@@ -88,7 +88,7 @@ async (page, options = {}) => {
   await page.goto(base + '?highlight=contrast-controls&a11y=1&mp=1'); await settled();
   check('Initial URL reveals a far-right highlighted column beyond the frozen columns', await page.evaluate(() => {
     const selected = document.querySelector('#feature-82').getBoundingClientRect();
-    const frozen = document.querySelector('#matrix-head .fixed-score').getBoundingClientRect();
+    const frozen = document.querySelector(innerWidth <= 800 ? '#matrix-head .fixed-game' : '#matrix-head .fixed-score').getBoundingClientRect();
     const region = document.querySelector('#matrix-region').getBoundingClientRect();
     return document.querySelector('#matrix-region').scrollLeft > 0 && selected.left >= frozen.right - 1 && selected.right <= region.right + 1;
   }));
@@ -104,14 +104,14 @@ async (page, options = {}) => {
       });
       layouts.push({...layout,allFeatures});
       check(`${width}px ${allFeatures ? 'all' : 'default'} columns stay within the page`, layout.outerWidth <= width && layout.countColumns === 0);
-      if (width > 650) {
+      if (width > 800) {
         check(`${width}px ${allFeatures ? 'all' : 'default'} columns use compact rows and usable widths`, Math.abs(layout.row.height - (layout.coarse ? 40 : 36)) < 1 && layout.title.width >= 251 && layout.title.width <= 385 && layout.rank.width >= 35 && layout.score.width >= 51 && layout.feature.width >= (layout.coarse ? 27 : 25));
         check(`${width}px feature headers retain compact two-tier heights`, Math.abs(layout.feature.height - 48) < 1 && Math.abs(layout.group.height - 28) < 1);
       }
       await page.locator('#matrix-body .game-name').first().click();
       const tip = await page.evaluate(() => {
         const bounds = selector => { const r = document.querySelector(selector).getBoundingClientRect(); return {left:r.left,right:r.right,top:r.top,bottom:r.bottom,width:r.width,height:r.height}; };
-        return {tip:bounds('#tooltip'),score:bounds('#matrix-head .fixed-score'),row:bounds('#matrix-body tr'),width:innerWidth,height:innerHeight};
+        return {tip:bounds('#tooltip'),score:bounds(innerWidth <= 800 ? '#matrix-head .fixed-game' : '#matrix-head .fixed-score'),row:bounds('#matrix-body tr'),width:innerWidth,height:innerHeight};
       });
       check(`${width}px game tooltip stays within the viewport`, tip.tip.left >= 11 && tip.tip.right <= width - 11 && tip.tip.top >= 11 && tip.tip.bottom <= tip.height - 11);
       if (tip.score.right + 8 + tip.tip.width <= width - 12) {
