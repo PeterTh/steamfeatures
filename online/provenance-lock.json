@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "importedAt": "2026-11-07T11:05:49.713Z",
+  "importedAt": "2026-11-07T13:04:12.285Z",
   "fixture": false,
   "sources": {
     "apps": {
@@ -28,16 +28,16 @@
       "country": "US",
       "language": "english",
       "reviews": "All-language Steam-purchase reviews",
-      "refreshedAt": "2026-11-07T11:05:49.713Z"
+      "refreshedAt": "2026-11-07T13:04:12.285Z"
     },
     "achievementSets": {
-      "sha256": "d53bb841ff8d9c93babdf564798e5f0710c1a227fad3f8c3ff88bcbe65d67add",
+      "sha256": "0c6a8541b9907de526107e10372d76b04036622653d6fdf5fb29653241651e04",
       "sourceArchives": [
         "62846e08fe05ae0a23afd823a45e15102f0b5e77193b54f6f420dcecf0d10f38",
         "290a08a70b05f43c172410a20d9a52b548bba9101be02e654ae76d398a5e0e6f"
       ],
-      "checkedFrom": "2026-10-17T22:47:10.325Z",
-      "checkedThrough": "2026-11-07T11:49:16.831Z",
+      "checkedFrom": "2026-10-17T22:47:14.914Z",
+      "checkedThrough": "2026-11-07T13:08:02.924Z",
       "knownGames": 72350,
       "supportedGames": 295
     }
@@ -58,63 +58,63 @@
     "sourceShards": 1817
   },
   "catalog": {
-    "catalog": "catalog.b85b1661812ea64a.json",
-    "compressedCatalog": "catalog.b85b1661812ea64a.json.gz",
-    "sha256": "b85b1661812ea64ab3059b8342eacc27b7fd1ccac362ac84d49852ccc5f31831",
-    "gzipSha256": "0d32892f8e3726830c7e30926179a1a253182c07467ca43d152cdb3f742280cd",
-    "bytes": 172886364,
-    "gzipBytes": 12910891,
-    "importedAt": "2026-11-07T11:05:49.713Z",
+    "catalog": "catalog.59069a683b70697b.json",
+    "compressedCatalog": "catalog.59069a683b70697b.json.gz",
+    "sha256": "59069a683b70697ba4a758e38ab2e615fcf9720469fd5c58c7155be6d18ead4f",
+    "gzipSha256": "3d5905ffd647ca588f0205724b94ac95affef76cb9a5faa265f37d91ca435b64",
+    "bytes": 172886357,
+    "gzipBytes": 12910853,
+    "importedAt": "2026-11-07T13:04:12.285Z",
     "binary": {
       "format": "steam-feature-atlas-binary-v1",
-      "file": "catalog.f1ed1e035941b6fd.bin",
-      "sha256": "f1ed1e035941b6fdeb30b4d0233f5ea8aaabaca4aa4c9789fe3c59d55e27a58a",
-      "bytes": 20088112,
+      "file": "catalog.f305ffe7179819a0.bin",
+      "sha256": "f305ffe7179819a04c815b800cc441f927d828a4ca270630ab1baba7778faaf0",
+      "bytes": 20088105,
       "gzip": {
-        "file": "catalog.f1ed1e035941b6fd.bin.gz",
-        "sha256": "9fb0bc1a2ef640aadafe943e719d07edb37af2b9fac1bf249b1c8f413c89bace",
-        "bytes": 6759810
+        "file": "catalog.f305ffe7179819a0.bin.gz",
+        "sha256": "ea4bd89246c550341fa31350c37ba7d9102edacd59aa4f7fcc1f224f774b7dc0",
+        "bytes": 6759779
       },
       "brotli": {
-        "file": "catalog.f1ed1e035941b6fd.bin.br",
-        "sha256": "9114046d8a40eeab56c194d5b9a76279be24669a910b7091f601bcf8df42e9c4",
-        "bytes": 5735133
+        "file": "catalog.f305ffe7179819a0.bin.br",
+        "sha256": "827cdb69131e5e1501ebcb3636197af1e908c171aa371d5b221d5fbf583e91fd",
+        "bytes": 5742722
       }
     },
     "progressive": {
       "version": 1,
       "minReviews": 20,
-      "snapshot": "f1ed1e035941b6fdeb30b4d0233f5ea8aaabaca4aa4c9789fe3c59d55e27a58a",
+      "snapshot": "f305ffe7179819a04c815b800cc441f927d828a4ca270630ab1baba7778faaf0",
       "priority": {
         "format": "steam-feature-atlas-binary-v1",
-        "file": "catalog.53cae1f09078f6a3.bin",
-        "sha256": "53cae1f09078f6a3beee633833e951be54311c6e25b4f43cc61ba4f19e0ab4b4",
-        "bytes": 6780227,
+        "file": "catalog.010d5e5f115b5071.bin",
+        "sha256": "010d5e5f115b5071d59cd37e3c32541fb9ca4661b6f6774780f73c5563cd7035",
+        "bytes": 6780220,
         "gzip": {
-          "file": "catalog.53cae1f09078f6a3.bin.gz",
-          "sha256": "632edd4125b039e2c13cfdf0a80a8c1d2fd3467eef4dd4726788dc89a729b4f6",
-          "bytes": 2331770
+          "file": "catalog.010d5e5f115b5071.bin.gz",
+          "sha256": "8d0570358584edcde00a0aced90e9568a5a21cb5aac2c1b7fcbd4bd91419d529",
+          "bytes": 2331735
         },
         "brotli": {
-          "file": "catalog.53cae1f09078f6a3.bin.br",
-          "sha256": "af7fd8bc09fd5e1b25e3db806ccf2e6c815c7055bbfc872e9d4fe23c5a9499d3",
-          "bytes": 1968960
+          "file": "catalog.010d5e5f115b5071.bin.br",
+          "sha256": "d06120e218c43430b7fc751537f364b1014eeaef183749216bca1250965bd3a9",
+          "bytes": 1968640
         }
       },
       "remainder": {
         "format": "steam-feature-atlas-binary-v1",
-        "file": "catalog.7e56d9e0cef2bac8.bin",
-        "sha256": "7e56d9e0cef2bac88423344cea399db65af407d4a8cd0eb64571eb4a717f379b",
-        "bytes": 13887635,
+        "file": "catalog.3be5c2083faecc42.bin",
+        "sha256": "3be5c2083faecc42f952ed793de25477fcc0548d219ff1e5dbaef9d3f8d7d37c",
+        "bytes": 13887628,
         "gzip": {
-          "file": "catalog.7e56d9e0cef2bac8.bin.gz",
-          "sha256": "1cd7caca19d92ce429ca0dc1bad959414bb5ca54af13c3bfc262b97d7c2cc659",
-          "bytes": 4518863
+          "file": "catalog.3be5c2083faecc42.bin.gz",
+          "sha256": "eb3d8e4a52f5544f51856ecf5b85eaa9f55eaddc2c69d22316e1710d13617c3b",
+          "bytes": 4518861
         },
         "brotli": {
-          "file": "catalog.7e56d9e0cef2bac8.bin.br",
-          "sha256": "38a61773731c0da2383ff9389c7ff158e31ca20f4300ec489f7738a6cb83612f",
-          "bytes": 3843162
+          "file": "catalog.3be5c2083faecc42.bin.br",
+          "sha256": "1deb6f49933b02bfae317ae9366686339f90091af8a78ca6c494a024a6bc5edf",
+          "bytes": 3843421
         }
       },
       "statistics": {
@@ -680,26 +680,26 @@
   },
   "gameCredits": {
     "format": "steam-feature-atlas-credits-v1",
-    "snapshot": "f1ed1e035941b6fdeb30b4d0233f5ea8aaabaca4aa4c9789fe3c59d55e27a58a",
-    "file": "game-credits.77202dde8fb55454.bin",
-    "sha256": "77202dde8fb5545496799d2c9ccb3a00fef4bc9f2c637fbf80a15b4c1d9fb84a",
+    "snapshot": "f305ffe7179819a04c815b800cc441f927d828a4ca270630ab1baba7778faaf0",
+    "file": "game-credits.9d9b6e0c88d252b8.bin",
+    "sha256": "9d9b6e0c88d252b80f0f715804b5ece722b6741dcee45fe35b8de5d63e6471c5",
     "bytes": 3834219,
     "gzip": {
-      "file": "game-credits.77202dde8fb55454.bin.gz",
-      "sha256": "6be4bfd41b9671eb63abfc5322447371376892632ee21b71b58052f35f6aad30",
-      "bytes": 2038761
+      "file": "game-credits.9d9b6e0c88d252b8.bin.gz",
+      "sha256": "8eadd4cd63bbacf1e39d43061ef543af5d572560508f6890364e5872507b7a8c",
+      "bytes": 2038763
     },
     "brotli": {
-      "file": "game-credits.77202dde8fb55454.bin.br",
-      "sha256": "ad8a818b8af1b8a9a0abb15fc89665d1bba82f0cff4ed6f0ace61f77b70c43f9",
-      "bytes": 1792142
+      "file": "game-credits.9d9b6e0c88d252b8.bin.br",
+      "sha256": "02154807f323a051f4528c2aec5035b1e9edb218328736f0cad6235675c71175",
+      "bytes": 1798829
     }
   },
   "achievementState": {
     "format": "steam-feature-atlas-achievement-state-v1",
-    "file": "achievement-state.d53bb841ff8d9c93.json.gz",
-    "sha256": "d53bb841ff8d9c93babdf564798e5f0710c1a227fad3f8c3ff88bcbe65d67add",
-    "bytes": 1497126,
+    "file": "achievement-state.0c6a8541b9907de5.json.gz",
+    "sha256": "0c6a8541b9907de526107e10372d76b04036622653d6fdf5fb29653241651e04",
+    "bytes": 1497128,
     "apps": 96139
   },
   "gameImages": {
@@ -708,28 +708,28 @@
     "shardCount": 256
   },
   "refreshState": {
-    "file": "refresh.a745085a59966931.json.gz",
-    "sha256": "a745085a59966931f7387fe96effd96b087ad1f7598956215112914241e6e301",
-    "bytes": 13289108
+    "file": "refresh.31bd8604aa56dd6b.json.gz",
+    "sha256": "31bd8604aa56dd6bbb65714037112b11e47277b187c025f017dfa48ec09ff822",
+    "bytes": 13289112
   },
   "refresh": {
     "enabled": true,
     "existingLimit": 4000,
-    "lastRunAt": "2026-11-07T11:05:49.713Z",
+    "lastRunAt": "2026-11-07T13:04:12.285Z",
     "bootstrapComplete": true,
     "checkedGames": 196699,
-    "discovered": 3537,
-    "refreshed": 4000,
-    "failures": 1,
-    "requests": 45,
+    "discovered": 0,
+    "refreshed": 0,
+    "failures": 0,
+    "requests": 1,
     "unresolvedReleased": 0,
     "deniedReleased": 2080
   },
   "steamArchive": {
     "format": "steam-feature-atlas-raw-v2",
-    "file": "steam-raw.3a5afbe4ad59a890.jsonl.zst",
-    "sha256": "3a5afbe4ad59a89055eb304c084501baaa488ab9f9c5fe7ce918bd3b7be8761e",
-    "bytes": 365670879,
+    "file": "steam-raw.3f88e4bc094b3352.jsonl.zst",
+    "sha256": "3f88e4bc094b33528ce37fc645beed10ac71d6a1936fde1c64f26c2320faddf2",
+    "bytes": 365670947,
     "uncompressedBytes": 2617635239,
     "apps": 200641,
     "successfulApps": 197325,
