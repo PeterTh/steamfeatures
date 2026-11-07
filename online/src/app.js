@@ -1,4 +1,7 @@
 import { DEFAULT_QUERY, PRESETS, normalizeQuery, parseQuery, serializeQuery } from './query.mjs';
+import { parseExpression, expressionRequirements } from './query-expression.mjs';
+import { queryUsesPriority } from './progressive-catalog.mjs';
+import { createAdvancedEditor } from './advanced-editor.mjs';
 import { parseView, serializeView } from './view-state.mjs';
 import { featureColumns, columnState, compatibilityTargets, disclosureDetails } from './feature-presentation.mjs';
 import { compatibilityDetails } from './compatibility-details.mjs';
@@ -29,7 +32,7 @@ const reviewFields = [['minReviews', 'min-reviews', 'Minimum review count'], ['m
   ['minRating', 'min-rating', 'Minimum review rating'], ['maxRating', 'max-rating', 'Maximum review rating']];
 const pickerKinds = [['feature', 'Features', 'active-count'], ['tag', 'Tags', 'active-tag-count'], ['review', 'Reviews', 'active-review-count'],
   ['date', 'Release date', 'active-date-count'], ['compatibility', 'Compatibility', 'active-compatibility-count'], ['language', 'Languages', 'active-language-count'],
-  ['developer', 'Developers', 'active-developer-count'], ['library', 'User Library', 'active-library-count']];
+  ['developer', 'Developers', 'active-developer-count'], ['library', 'User Library', 'active-library-count'], ['advanced', 'Advanced', 'active-advanced-count']];
 const compactLayout = matchMedia('(max-width:800px)'), compactLegend = matchMedia('(max-width:1100px)');
 let openPicker = null, headerDialogOrigin = null;
 let tipAnchor = null, tipPinned = false, currentColumn = null, suppressFocusTip = false, columnCells = new Map();
@@ -42,6 +45,17 @@ let dateDraftDirty = false;
 let reviewDraftDirty = false;
 let compatibilityAnchor = null;
 let gameCard = null, tipSearch = null, loadGameImage = createGameImageLoader(null);
+let workerStopped = false;
+const queryTimers = new Map();
+const lineCountTimers = new Map();
+const advancedActive = () => state.expression !== null;
+const advancedEditor = createAdvancedEditor({
+  catalog: () => data, query: () => state, libraryFilters: () => libraryFilters,
+  libraryAvailable: () => ({ owned: userLibrary !== null, wishlist: userLibrary?.wishlistIds != null }),
+  apply: expression => setFilters({ expression }),
+  returnBasic: conversion => { libraryFilters = conversion.libraryFilters; updateUserLibrary(); setFilters(conversion.filters); },
+  layout: scheduleMatrixLayout,
+});
 
   const paths = {
   "steam": "<g fill=\"currentColor\" stroke=\"none\" transform=\"translate(2 1.9) scale(.226)\"><path d=\"M44.238 .601C21 .601 1.963 18.519 .154 41.29l23.71 9.803a12.45 12.45 0 0 1 7.047-2.179c.234 0 .467 .008 .698 .021l10.544-15.283c0-.073-.001-.144-.001-.216 0-9.199 7.483-16.683 16.683-16.683S75.517 24.237 75.517 33.436 68.034 50.12 58.835 50.12c-.127 0-.253-.003-.379-.006l-15.038 10.73c.008 .195 .015 .394 .015 .592 0 6.906-5.617 12.522-12.522 12.522-6.061 0-11.129-4.326-12.277-10.055L1.678 56.893c5.25 18.568 22.309 32.181 42.56 32.181 24.432 0 44.237-19.806 44.237-44.235C88.475 20.406 68.669 .601 44.238 .601Z\"/><path d=\"m27.875 67.723-5.434-2.245c.963 2.005 2.629 3.684 4.841 4.606 4.782 1.992 10.295-.277 12.288-5.063a9.34 9.34 0 0 0 .014-7.189 9.33 9.33 0 0 0-5.074-5.097 9.34 9.34 0 0 0-6.926-.105l5.613 2.321c3.527 1.47 5.195 5.52 3.725 9.047-1.467 3.523-5.52 5.191-9.047 3.725Z\"/><path d=\"M69.95 33.436c0-6.129-4.986-11.116-11.116-11.116S47.718 27.307 47.718 33.436 52.705 44.551 58.834 44.551 69.95 39.565 69.95 33.436ZM50.502 33.417a8.35 8.35 0 1 1 16.702 0 8.35 8.35 0 0 1-16.702 0Z\"/></g>",
@@ -364,7 +378,7 @@ let gameCard = null, tipSearch = null, loadGameImage = createGameImageLoader(nul
       highlight.addEventListener('click', () => setHighlight(f.key === highlightedFeature ? null : f.key));
       controls.append(highlight);
       if (f.statuses) {
-        const filter = element('button', 'highlight-button', 'Filter by compatibility'); filter.type = 'button';
+        const filter = element('button', 'highlight-button', 'Filter by compatibility'); filter.type = 'button'; filter.disabled = advancedActive();
         filter.addEventListener('click', () => {
           hideTip(); if ($('compatibility-picker').hidden) togglePicker('compatibility');
           $('compatibility-' + f.key).focus();
@@ -458,18 +472,19 @@ function showError(message, loading = false) {
 }
 function syncLibraryControls() {
   const active = hasLibraryFilters();
+  const advancedLibrary = advancedActive() && expressionRequirements(parseExpression(state.expression, data)).library;
   for (const [kind] of libraryFields) {
-    const mode = libraryFilters[kind];
+    const mode = advancedActive() ? '' : libraryFilters[kind];
     $('library-' + kind).classList.toggle('selected', mode === 'has');
     $('library-' + kind).classList.toggle('excluded', mode === 'not');
     for (const action of ['has', 'not']) {
       const button = $(`library-${kind}-${action}`);
-      button.disabled = userLibrary === null || kind === 'wishlist' && userLibrary.wishlistIds === null;
+      button.disabled = advancedActive() || userLibrary === null || kind === 'wishlist' && userLibrary.wishlistIds === null;
       button.setAttribute('aria-pressed', String(mode === action));
     }
   }
   $('library-forget').hidden = userLibrary === null;
-  $('active-library-count').textContent = libraryFields.filter(([kind]) => libraryFilters[kind]).length;
+  $('active-library-count').textContent = advancedActive() ? advancedLibrary ? 'Query' : '0' : libraryFields.filter(([kind]) => libraryFilters[kind]).length;
   syncCompactCounts();
   $('library-status').textContent = (userLibrary === null ? 'No library imported.'
     : `${fmt(userLibrary.appIds.length)} owned app ${userLibrary.appIds.length === 1 ? 'ID' : 'IDs'}`
@@ -477,8 +492,8 @@ function syncLibraryControls() {
         : ` and ${fmt(userLibrary.wishlistIds.length)} wishlist app ${userLibrary.wishlistIds.length === 1 ? 'ID' : 'IDs'} imported.`)
       + ' Only catalog games matching your other filters are shown.')
     + (libraryStorageNotice ? ' ' + libraryStorageNotice : '');
-  $('share-library-warning').toggleAttribute('hidden', !active);
-  $('share').title = active ? 'User Library filters are local to this browser and are not included in shared links.' : 'Copy a link to these filters';
+  $('share-library-warning').toggleAttribute('hidden', !(advancedActive() ? advancedLibrary : active));
+  $('share').title = advancedLibrary ? 'Library conditions in this link use the viewer’s imported library. Library data is never shared.' : !advancedActive() && active ? 'User Library filters are local to this browser and are not included in shared links.' : 'Copy a link to these filters';
 }
 function setLibraryError(message = '') {
   $('library-error').textContent = message; $('library-error').hidden = !message;
@@ -522,16 +537,17 @@ function restoreUserLibrary() {
   syncLibraryControls();
 }
 function sendUserLibrary(target) {
-  const rules = libraryFields.filter(([kind]) => libraryFilters[kind]).map(([kind]) => ({
+  const rules = libraryFields.filter(([kind]) => libraryFilters[kind] && userLibrary && (kind === 'owned' || userLibrary.wishlistIds !== null)).map(([kind]) => ({
     appIds: kind === 'owned' ? userLibrary.appIds : userLibrary.wishlistIds, exclude: libraryFilters[kind] === 'not',
   }));
-  target?.postMessage({ type: 'library', rules });
+  target?.postMessage({ type: 'library', rules, lists: { owned: userLibrary?.appIds ?? null, wishlist: userLibrary?.wishlistIds ?? null } });
 }
 function updateUserLibrary(options) {
   hideTip(); saveUserLibrary(options); syncLibraryControls();
   for (const target of new Set([worker, fullWorker])) sendUserLibrary(target);
 }
 function setLibraryFilter(kind, action) {
+  if (advancedActive()) return;
   if (userLibrary === null || kind === 'wishlist' && userLibrary.wishlistIds === null) return;
   libraryFilters = { ...libraryFilters, [kind]: libraryFilters[kind] === action ? '' : action };
   updateUserLibrary(); setFilters({ page: 1 });
@@ -567,6 +583,11 @@ function resetFilters() {
   setFilters(DEFAULT_QUERY);
 }
 function startWorker() {
+  workerStopped = false;
+  for (const timer of lineCountTimers.values()) clearTimeout(timer);
+  lineCountTimers.clear(); advancedEditor.clearCounts();
+  for (const timer of queryTimers.values()) clearTimeout(timer);
+  queryTimers.clear();
   if (fullWorker !== worker) fullWorker?.terminate();
   fullWorker = null; fullReady = false; backgroundStarted = false; backgroundError = null;
   pendingFullQuery = false; lastSubmittedQuery = null; completedRequest = 0; fullReadyAt = null;
@@ -581,8 +602,10 @@ function startWorker() {
   worker.addEventListener('error', ({ target }) => { if (target === worker) showError('The catalog worker could not start. Reload this page or try a browser that supports module workers.', true); });
   worker.addEventListener('message', ({ target, data: message }) => {
     if (target !== worker) return;
+    if (receiveLineCounts(message, target)) return;
     if (receiveCredits(message)) return;
     if (message.type === 'error') {
+      clearTimeout(queryTimers.get(message.requestId)); queryTimers.delete(message.requestId);
       if (message.requestId != null && message.requestId !== latestRequest) return;
       showError(message.message, !ready); return;
     }
@@ -601,7 +624,27 @@ function startWorker() {
   sendUserLibrary(worker);
 }
 
+function receiveLineCounts(message, target) {
+  if (!['line-counts-start', 'line-counts'].includes(message.type)) return false;
+  clearTimeout(lineCountTimers.get(message.requestId)); lineCountTimers.delete(message.requestId);
+  if (message.type === 'line-counts-start') {
+    lineCountTimers.set(message.requestId, setTimeout(() => {
+      if (target !== worker && target !== fullWorker) return;
+      worker?.terminate(); fullWorker?.terminate(); workerStopped = true;
+      for (const timer of [...queryTimers.values(), ...lineCountTimers.values()]) clearTimeout(timer);
+      queryTimers.clear(); lineCountTimers.clear();
+      if (completedRequest !== latestRequest) startWorker();
+      else advancedEditor.setCounts(message.text, null, 'Line counts took too long for this query.');
+    }, 5000));
+  } else if (!workerStopped && message.requestId === latestRequest && !message.cancelled) {
+    advancedEditor.setCounts(message.text, message.counts, message.error);
+  }
+  return true;
+}
+
 function receiveResult(message) {
+  if (message.requestId != null) { clearTimeout(queryTimers.get(message.requestId)); queryTimers.delete(message.requestId); }
+  if (workerStopped) return;
   if (message.type !== 'result' || message.requestId !== latestRequest) return;
   completedRequest = message.requestId;
   latestResult = message.result;
@@ -616,6 +659,9 @@ function receiveResult(message) {
     return;
   }
   state = latestResult.query;
+  const ignored = latestResult.ignoredLibraries ?? [];
+  $('advanced-library-warning').hidden = !ignored.length;
+  $('advanced-library-warning').textContent = ignored.length ? `⚠ ${ignored.map(kind => kind === 'owned' ? 'Owned games' : 'Wishlist').join(' and ')} conditions are being ignored because the list is missing. Import your library →` : '';
   requestedSearch = serializeQuery(state, data.features, data.tags, data.languages);
   writeURL(state);
   syncControls(true, true, true, true); render();
@@ -625,7 +671,7 @@ function receiveResult(message) {
   if (fullReady && creditsStatus === 'idle') scheduleCredits();
 }
 function syncCreditsControls() {
-  for (const [role] of creditFields) $(role + '-filter').disabled = creditsStatus !== 'ready';
+  for (const [role] of creditFields) $(role + '-filter').disabled = advancedActive() || creditsStatus !== 'ready';
   $('credits-status').hidden = creditsStatus === 'ready';
   $('credits-retry').hidden = creditsStatus !== 'error';
   $('credits-status-text').textContent = creditsStatus === 'error' ? 'Developer and publisher data could not load.'
@@ -678,8 +724,10 @@ function startBackgroundCatalog(retry = false) {
   });
   fullWorker.addEventListener('message', ({ target, data: message }) => {
     if (target !== fullWorker) return;
+    if (receiveLineCounts(message, target)) return;
     if (receiveCredits(message)) return;
     if (message.type === 'error') {
+      clearTimeout(queryTimers.get(message.requestId)); queryTimers.delete(message.requestId);
       if (target !== worker) backgroundFailed(message.message);
       else if (message.requestId == null || message.requestId === latestRequest) showError(message.message, !ready);
       return;
@@ -696,7 +744,10 @@ function startBackgroundCatalog(retry = false) {
       previous.terminate();
       // A terminated worker may have an outstanding result. Reissue only the
       // latest submitted query, never a newer search draft awaiting its debounce.
-      if (!pendingCreditsQuery && lastSubmittedQuery?.requestId === latestRequest && completedRequest !== latestRequest) worker.postMessage({ type: 'query', ...lastSubmittedQuery });
+      if (!pendingCreditsQuery && lastSubmittedQuery?.requestId === latestRequest && completedRequest !== latestRequest) postQuery(worker, lastSubmittedQuery);
+      else if (!pendingCreditsQuery && lastSubmittedQuery?.requestId === latestRequest && lastSubmittedQuery.lineCounts) {
+        worker.postMessage({ type: 'line-counts', requestId: latestRequest, query: state, total: latestResult.total });
+      }
       scheduleCredits();
     } else receiveResult(message);
   });
@@ -706,25 +757,57 @@ function startBackgroundCatalog(retry = false) {
 
 function writeURL(query, mode = 'replace') {
   const search = serializeView(query, highlightedFeature, data.features, data.tags, data.languages);
-  if (search !== location.search) history[mode === 'push' ? 'pushState' : 'replaceState'](null, '', location.pathname + search + location.hash);
+  const snapshot = { libraryFilters: { ...libraryFilters } };
+  if (search !== location.search || JSON.stringify(history.state?.libraryFilters) !== JSON.stringify(libraryFilters)) history[mode === 'push' ? 'pushState' : 'replaceState'](snapshot, '', location.pathname + search + location.hash);
 }
 function loadURL() {
   clearTimeout(inputTimer);
   try {
     const next = parseView(location.search, data.features, data.tags, data.languages);
-    const sameQuery = requestedSearch === serializeQuery(next.query, data.features, data.tags, data.languages) && activeQueryRequest === latestRequest && $('error').hidden;
+    const previousLibrary = JSON.stringify(libraryFilters);
+    if (history.state?.libraryFilters) {
+      const saved = history.state.libraryFilters;
+      libraryFilters = Object.fromEntries(libraryFields.map(([kind]) => [kind, userLibrary && (kind === 'owned' || userLibrary.wishlistIds !== null) && ['has', 'not'].includes(saved[kind]) ? saved[kind] : '']));
+      updateUserLibrary();
+    }
+    const sameQuery = previousLibrary === JSON.stringify(libraryFilters) && requestedSearch === serializeQuery(next.query, data.features, data.tags, data.languages) && activeQueryRequest === latestRequest && $('error').hidden;
     const highlightChanged = highlightedFeature !== next.highlight;
     state = next.query; highlightedFeature = next.highlight;
+    advancedEditor.sync(true);
     hideTip(); syncControls(); syncHighlight(highlightChanged);
+    if (advancedActive()) setOpenPicker('advanced');
     if (sameQuery) writeURL(state);
     else query();
-  } catch (error) { latestRequest = ++requestId; showError('This link has invalid filters: ' + error.message); }
+  } catch (error) {
+    latestRequest = ++requestId; showError('This link has invalid filters: ' + error.message);
+    const params = new URLSearchParams(location.search);
+    if (params.has('expr')) { advancedEditor.loadInvalid(params.get('expr'), error); setOpenPicker('advanced'); }
+  }
+}
+function postQuery(target, request) {
+  if (request.query.expression !== null && expressionRequirements(parseExpression(request.query.expression, data)).regex) {
+    clearTimeout(queryTimers.get(request.requestId));
+    queryTimers.set(request.requestId, setTimeout(() => {
+      queryTimers.delete(request.requestId);
+      if (target !== worker && target !== fullWorker) return;
+      worker?.terminate(); fullWorker?.terminate(); workerStopped = true;
+      for (const timer of [...queryTimers.values(), ...lineCountTimers.values()]) clearTimeout(timer);
+      queryTimers.clear(); lineCountTimers.clear(); pendingFullQuery = pendingCreditsQuery = false;
+      if (request.requestId !== latestRequest) { startWorker(); return; }
+      $('catalog-progress').hidden = true; $('results').removeAttribute('aria-busy');
+      showError('This query took too long. Simplify its regular expressions and apply again.');
+      setOpenPicker('advanced');
+    }, 5000));
+  }
+  target.postMessage({ type: 'query', ...request, lineCounts: request.lineCounts && fullReady });
 }
 function query(keepGameTip = false, creditsOnly = false) {
+  if (workerStopped) { startWorker(); return; }
   preserveGameTip = keepGameTip && tipPinned && tipAnchor?.dataset.tip === 'game';
   if (!preserveGameTip && !creditsOnly) hideTip();
   $('error').hidden = true;
   $('results').setAttribute('aria-busy', 'true');
+  advancedEditor.clearCounts();
   latestRequest = ++requestId;
   creditsRefreshRequest = creditsOnly ? latestRequest : 0;
   activeQueryRequest = latestRequest;
@@ -732,8 +815,9 @@ function query(keepGameTip = false, creditsOnly = false) {
   pendingFullQuery = false;
   pendingCreditsQuery = false;
   $('catalog-progress').hidden = !backgroundError;
-  lastSubmittedQuery = { requestId: latestRequest, query: state, ...(tipPinned && gameCard ? { pinnedGameId: gameCard.id } : {}) };
-  if ((state.developer || state.publisher) && creditsStatus !== 'ready') {
+  lastSubmittedQuery = { requestId: latestRequest, query: state, lineCounts: advancedActive() && state.expression.includes('\n'), ...(tipPinned && gameCard ? { pinnedGameId: gameCard.id } : {}) };
+  const needsCredits = advancedActive() ? expressionRequirements(parseExpression(state.expression, data)).credits : state.developer || state.publisher;
+  if (needsCredits && creditsStatus !== 'ready') {
     pendingCreditsQuery = true;
     $('results').hidden = true;
     if (data.progressive?.partial && !fullReady) startBackgroundCatalog();
@@ -742,9 +826,10 @@ function query(keepGameTip = false, creditsOnly = false) {
     $('catalog-status').textContent = creditsStatus === 'error' ? 'Developer and publisher data could not load. Retry, or clear these filters.' : 'Loading developer and publisher data to apply this filter…';
     return;
   }
-  if (!data.progressive?.partial || state.minReviews >= data.progressive.plan.minReviews) worker.postMessage({ type: 'query', ...lastSubmittedQuery });
+  if (!data.progressive?.partial || queryUsesPriority(state, data)) postQuery(worker, lastSubmittedQuery);
   else {
     pendingFullQuery = true;
+    $('results').hidden = true;
     startBackgroundCatalog();
     $('catalog-progress').hidden = false;
     $('catalog-status').textContent = backgroundError ? 'More games could not load. Retry to use this filter.' : 'Loading more games to apply this filter…';
@@ -752,6 +837,7 @@ function query(keepGameTip = false, creditsOnly = false) {
 }
 function setFilters(patch, resetPage = true, keepGameTip = false) {
   if (!ready) return;
+  if (advancedActive() && !Object.hasOwn(patch, 'expression') && Object.keys(patch).some(key => !['sort', 'page', 'includeAccessibility', 'includeMultiplayer', 'includeHardware', 'includeRemotePlay'].includes(key))) return;
   clearTimeout(inputTimer);
   try {
     const next = normalizeQuery({ ...state, ...patch, ...(resetPage && !('page' in patch) ? { page: 1 } : {}) }, data.features, data.tags, data.languages);
@@ -872,6 +958,23 @@ function syncControls(preserveDateDraft = false, preserveSearchDraft = false, pr
     const active = serializeQuery({ ...state, page: 1 }, data.features, data.tags, data.languages) === serializeQuery(preset.query, data.features, data.tags, data.languages);
     button.setAttribute('aria-pressed', String(active));
   }
+  syncAdvancedControls();
+}
+function syncAdvancedControls() {
+  const active = advancedActive();
+  advancedEditor.sync();
+  for (const id of ['search', 'clear-search', 'release', 'feature-search', 'tag-search', 'language-search', ...reviewFields.map(([, id]) => id), 'release-from', 'release-to']) $(id).disabled = active;
+  for (const kind of ['feature', 'tag', 'review', 'date', 'compatibility', 'language', 'developer']) {
+    $(kind + '-toggle').disabled = active;
+    $('filter-category').querySelector(`[value="${kind}"]`).disabled = active;
+    for (const control of $(kind + '-picker').querySelectorAll('input, select, button:not(.picker-close)')) control.disabled = active;
+  }
+  syncCreditsControls();
+  $('active-filters').hidden = active;
+  if (!active) $('advanced-library-warning').hidden = true;
+  for (const button of $('presets').querySelectorAll('button')) button.disabled = active;
+  if (active && openPicker && !['advanced', 'library'].includes(openPicker)) setOpenPicker('advanced');
+  syncCompactCounts();
 }
 function setDateError(message) {
   if (message && $('date-picker').hidden) togglePicker('date');
@@ -928,6 +1031,7 @@ function featureActions(f, fromTip = false) {
   for (const [kind, verb] of [['has', 'Require'], ['not', 'Exclude']]) {
     const button = element('button', 'feature-action'); button.type = 'button'; button.dataset.action = kind; button.append(icon(kind === 'has' ? 'plus' : 'minus'));
     button.setAttribute('aria-label', verb + ' ' + f.name); button.setAttribute('aria-pressed', String(state[kind].includes(f.id))); button.title = verb + ' ' + f.name;
+    button.disabled = advancedActive();
     button.addEventListener('click', () => {
       const has = state.has.filter(id => id !== f.id), not = state.not.filter(id => id !== f.id);
       if (!state[kind].includes(f.id)) (kind === 'has' ? has : not).push(f.id);
@@ -1039,6 +1143,7 @@ function matchesCreditFilter(role, name) {
 }
 function syncGameCredits() {
   for (const button of $('tooltip').querySelectorAll('.tip-credit')) {
+    button.disabled = advancedActive();
     const { creditRole: role, creditName: name } = button.dataset;
     const matches = matchesCreditFilter(role, name);
     const action = matches ? `Clear ${role} filter: ${name}` : `Filter by ${role}: ${name}`;
@@ -1050,6 +1155,7 @@ function syncGameCredits() {
 }
 function syncGameTags() {
   for (const tag of $('tooltip').querySelectorAll('.tip-tag')) {
+    tag.disabled = advancedActive();
     const name = tag.dataset.tagName, kind = state.hasTags.includes(name) ? 'has' : state.notTags.includes(name) ? 'not' : '';
     const status = kind === 'has' ? 'Required' : kind === 'not' ? 'Excluded' : 'Not filtered';
     const action = kind === 'has' ? 'Exclude' : kind === 'not' ? 'Clear filter for' : 'Require';
@@ -1076,6 +1182,7 @@ function togglePicker(kind) {
   setOpenPicker(openPicker === kind ? null : kind);
 }
 function setOpenPicker(kind) {
+  if (advancedActive() && kind && !['advanced', 'library'].includes(kind)) kind = 'advanced';
   if (kind && compactLayout.matches) setCountOpen(false);
   openPicker = kind;
   for (const [name] of pickerKinds) {
@@ -1086,6 +1193,7 @@ function setOpenPicker(kind) {
   $('filter-category').value = kind ?? '';
   if (kind === 'tag') { buildTagPicker(); syncTagOptions(); }
   if (kind === 'language') { buildLanguagePicker(); syncLanguageOptions(); }
+  if (kind === 'advanced') advancedEditor.open(); else advancedEditor.close();
   scheduleMatrixLayout();
 }
 function syncCompactCounts() {
@@ -1146,6 +1254,8 @@ for (const preset of PRESETS) {
 }
 $('filters').addEventListener('submit', e => {
   e.preventDefault();
+  if (openPicker === 'advanced') { advancedEditor.submit(); return; }
+  if (advancedActive()) return;
   const reviews = readReviewDraft();
   if (reviews) applyReleaseDates({ ...textFilterPatch(), ...reviews });
 });
@@ -1255,12 +1365,14 @@ for (const id of ['news-dialog', 'about-dialog', 'compatibility-dialog']) $(id).
   if (e.clientX < rect.left || e.clientX > rect.right || e.clientY < rect.top || e.clientY > rect.bottom) e.currentTarget.close();
 });
 $('share').addEventListener('click', async () => {
-  if (ready && textFields.some(([, id, parameter]) => $(id).value !== (new URLSearchParams(location.search).get(parameter) ?? ''))) setFilters(textFilterPatch(), false);
-  const libraryNote = hasLibraryFilters() ? ' The User Library filters are not included.' : '';
+  if (ready && !advancedActive() && textFields.some(([, id, parameter]) => $(id).value !== (new URLSearchParams(location.search).get(parameter) ?? ''))) setFilters(textFilterPatch(), false);
+  const libraryNote = advancedActive() ? expressionRequirements(parseExpression(state.expression, data)).library ? ' Library conditions use the viewer’s imported library; library data is not shared.' : '' : hasLibraryFilters() ? ' The User Library filters are not included.' : '';
   try { await navigator.clipboard.writeText(location.href); $('share-status').textContent = 'Link copied.' + libraryNote; $('share-label').textContent = 'Copied!'; setTimeout(() => { $('share-label').textContent = 'Copy link'; }, 1800); }
-  catch { $('share-status').textContent = (hasLibraryFilters() ? 'Copy the address from your browser to share the other filters.' : 'Copy the address from your browser to share this view.') + libraryNote; $('share-label').textContent = 'Copy address bar URL'; }
+  catch { $('share-status').textContent = (!advancedActive() && hasLibraryFilters() ? 'Copy the address from your browser to share the other filters.' : 'Copy the address from your browser to share this view.') + libraryNote; $('share-label').textContent = 'Copy address bar URL'; }
 });
 window.addEventListener('popstate', () => { if (ready) loadURL(); });
+$('advanced-active').addEventListener('click', () => { setOpenPicker('advanced'); $('advanced-query').focus(); });
+$('advanced-library-warning').addEventListener('click', () => { setOpenPicker('library'); $('library-file').focus(); });
 window.addEventListener('storage', event => {
   try { if (event.storageArea !== localStorage) return; } catch { return; }
   if (event.key !== null && event.key !== LIBRARY_STORAGE_KEY) return;

@@ -45,6 +45,14 @@ Run `game-card-checks.js` for title-button pinning, Steam/SteamDB/Steamograph li
 
 Run the relevant harnesses in Edge and Firefox.
 
+`advanced-query-checks.js` checks Boolean unions and nesting, regex matching, autocomplete, syntax highlighting and native undo, wrapping/scroll alignment and high contrast mode, compact controls and return-warning tooltips, explicit application and invalid drafts, disabled basic controls, lossless/lossy return, shared URLs, history, missing/empty library lists and import/forget, responsive layouts, malformed-link repair, and worker timeout recovery. It uses synthetic library files and the real Portal entries. Optional `screenshotDirectory` captures the desktop and mobile editor. Run in an isolated browser context.
+
+`advanced-editor-checks.js` checks bold query parentheses and matching pairs on caret movement, hover and edits, including nested groups, unmatched parentheses, and ignored string/regex parentheses. It also checks the compact help row, desktop width and automatic growth, native manual resizing and height preservation, compact-screen limits, and matching after scrolling. Optional `screenshotDirectory` captures the desktop and mobile editor.
+
+`advanced-completion-checks.js` checks typing-selected completions versus passive suggestions on clicks and caret movement, empty prefixes, Enter and Tab acceptance, arrow selection, Shift+Enter, native text selection/focus/undo, Escape, composition keyboard guards, and Ctrl/Cmd+Enter application. It reproduces inserting a newline at the beginning of an existing controller-support query and checks that line numbers and highlighting follow the edit.
+
+`advanced-line-counts-checks.js` compares each cumulative count in a seven-line query with independently applied prefixes. It covers multiline URL/reload/history preservation, partial-catalog handover without delaying results, OR precedence, incomplete groups, stale drafts, library changes, logical line numbering, nearby aligned count/change columns, positive/negative/zero changes and group tooltips, wrapping/scrolling, optional-count timeout recovery, the return button's warning icon, and the syntax foldout's click target. It reports the sample query's counts and elapsed application time, and can capture desktop/mobile screenshots.
+
 `catalog-checks.cjs` runs the eight interface harnesses plus blocked-download, failure/retry, search-draft and worker-handover checks against the normal `dist/` build, in Edge and Firefox. `catalog-benchmark.cjs` compares its initial loading time against the same code and records served through the full-catalogue fallback. The comparison server strips only `current.progressive` from the reference manifest, and can pace catalogue transfers at 10 Mbps with 150 ms request latency.
 
 With Playwright available to Node, run from `online/`:

@@ -4,8 +4,10 @@ import { presentationFeatures, featureColumns, compatibilityTargets } from './fe
 import { LANGUAGE_KINDS, decodeLanguageBits, languageFlags, languageIndex } from './languages.mjs';
 import { featureCodes } from './feature-codes.mjs';
 import { normalizeCreditSearch, gameCreditNames } from './game-credits.mjs';
+import { parseExpression, compileExpression, knownReleaseDate, resolveReleaseBound } from './query-expression.mjs';
 export const PAGE_SIZE = 50;
 export const DEFAULT_QUERY = Object.freeze({
+  expression: null,
   q: '', developer: '', publisher: '', has: Object.freeze([]), not: Object.freeze([]),
   hasTags: Object.freeze([]), notTags: Object.freeze([]), minReviews: 20, maxReviews: null, minRating: null, maxRating: null,
   hasLanguages: Object.freeze([]), notLanguages: Object.freeze([]),
@@ -74,27 +76,6 @@ function ratingBound(value, label) {
   const number = Number(value);
   if (!Number.isFinite(number) || number < 0 || number > 100) throw new Error(`${label} must be a percentage from 0 to 100.`);
   return number;
-}
-
-function knownReleaseDate(value) {
-  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
-  const year = Number(value.slice(0, 4));
-  const month = Number(value.slice(5, 7));
-  const day = Number(value.slice(8, 10));
-  if (year === 0 || month < 1 || month > 12 || day < 1) return null;
-  const leap = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
-  const days = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
-  return day <= days[month - 1] ? value : null;
-}
-
-function resolveReleaseBound(value, end = false) {
-  if (typeof value === 'string' && /^\d{4}$/.test(value)) value += end ? '-12-31' : '-01-01';
-  else if (typeof value === 'string' && /^\d{4}-\d{2}$/.test(value)) {
-    let day = end ? 31 : 1;
-    while (day > 28 && knownReleaseDate(`${value}-${day}`) === null) day -= 1;
-    value += `-${String(day).padStart(2, '0')}`;
-  }
-  return knownReleaseDate(value);
 }
 
 function releaseBound(value, label) {
@@ -168,8 +149,11 @@ function languageFilterList(value, index) {
 export function normalizeQuery(input = {}, features, tags = [], languages = []) {
   const index = featureIndex(features);
   const tagsByName = tagIndex(tags);
-  const source = input ?? {};
+  let source = input ?? {};
   if (typeof source !== 'object' || Array.isArray(source)) throw new Error('Invalid query.');
+  const expression = typeof source.expression === 'string' ? source.expression.replace(/\r\n?/g, '\n') : source.expression ?? null;
+  if (expression !== null) parseExpression(expression, { features, tags, languages });
+  if (expression !== null) source = { ...source, q: '', developer: '', publisher: '', has: [], not: [], hasTags: [], notTags: [], hasLanguages: [], notLanguages: [], minReviews: 0, maxReviews: null, minRating: null, maxRating: null, release: 'all', releaseFrom: '', releaseTo: '', compatibility: {}, includeEarlyAccess: false };
   const has = featureList(source.has, index, 'required');
   const not = featureList(source.not, index, 'excluded');
   const conflict = has.find(id => not.includes(id));
@@ -202,6 +186,7 @@ export function normalizeQuery(input = {}, features, tags = [], languages = []) 
   if (maxReviews !== null && minReviews > maxReviews) throw new Error('Minimum review count must not exceed the maximum.');
   if (minRating !== null && maxRating !== null && minRating > maxRating) throw new Error('Minimum review rating must not exceed the maximum.');
   return {
+    expression,
     q: String(source.q ?? '').normalize('NFKC').trim(), has, not, hasTags, notTags, hasLanguages, notLanguages,
     developer: String(source.developer ?? '').normalize('NFKC').trim(),
     publisher: String(source.publisher ?? '').normalize('NFKC').trim(),
@@ -225,9 +210,14 @@ export function parseQuery(search = '', features, tags = [], languages = []) {
     return values[0];
   }
   const version = single('v');
-  if (version !== undefined && version !== '1') throw new Error(`Unsupported query version: ${version}.`);
+  if (version !== undefined && version !== '1' && version !== '2') throw new Error(`Unsupported query version: ${version}.`);
+  if (version === '2') {
+    if (!params.has('expr')) throw new Error('Advanced links require an expr parameter.');
+    if (BASIC_PARAMETERS.some(key => params.has(key))) throw new Error('Advanced links cannot also contain basic filter parameters.');
+  } else if (params.has('expr')) throw new Error('Advanced links require query version 2.');
   const split = key => params.getAll(key).flatMap(value => value.split(',')).map(value => value.trim()).filter(Boolean);
   return normalizeQuery({
+    expression: version === '2' ? single('expr') : null,
     q: single('q'), developer: single('dev'), publisher: single('pub'), has: split('has'), not: split('not'), minReviews: single('minReviews'),
     maxReviews: single('maxReviews'), minRating: single('minRating'), maxRating: single('maxRating'),
     hasTags: params.getAll('tag'), notTags: params.getAll('notTag'),
@@ -267,8 +257,15 @@ export function serializeQuery(input, features, tags = [], languages = []) {
   if (query.releaseTo) params.set('releaseTo', query.releaseTo);
   if (query.sort !== DEFAULT_QUERY.sort) params.set('sort', query.sort);
   if (query.page !== DEFAULT_QUERY.page) params.set('page', String(query.page));
+  if (query.expression !== null) {
+    for (const key of BASIC_PARAMETERS) params.delete(key);
+    params.set('expr', query.expression);
+    return `?v=2&${params.toString()}`;
+  }
   return params.size ? `?v=1&${params.toString()}` : '';
 }
+
+const BASIC_PARAMETERS = ['q', 'dev', 'pub', 'has', 'not', 'tag', 'notTag', 'lang', 'notLang', 'minReviews', 'maxReviews', 'minRating', 'maxRating', 'ea', 'release', 'releaseFrom', 'releaseTo', ...compatibilityTargets.map(t => t.parameter)];
 
 function knownReviews(value) {
   return Number.isSafeInteger(value) && value >= 0 ? value : null;
@@ -394,10 +391,11 @@ function compareNullable(a, b, direction = -1) {
 }
 
 /** Pure query operation; feature constraints are independent of visible columns. */
-export function runQuery(catalog, input = DEFAULT_QUERY, { libraryRules = [] } = {}) {
+export function runQuery(catalog, input = DEFAULT_QUERY, { libraryRules = [], library = {} } = {}) {
   if (!Array.isArray(libraryRules) || libraryRules.some(rule => !(rule?.appIds instanceof Set) || typeof rule.exclude !== 'boolean')) throw new Error('Invalid local library filters.');
   const prepared = prepareCatalog(catalog);
   const query = normalizeQuery(input, prepared.features, prepared.tags, prepared.languages);
+  const advanced = query.expression === null ? null : compileExpression(parseExpression(query.expression, prepared), prepared, library);
   const creditTerms = [normalizeCreditSearch(query.developer), normalizeCreditSearch(query.publisher)];
   const filterCredits = creditTerms.some(Boolean);
   if (filterCredits && !prepared.gameCredits) throw new Error('Developer and publisher data has not loaded.');
@@ -421,6 +419,7 @@ export function runQuery(catalog, input = DEFAULT_QUERY, { libraryRules = [] } =
   const visibleFeatures = featureColumns(prepared.features).filter(feature =>
     (query.includeAccessibility || !feature.accessibility) && (query.includeMultiplayer || !feature.multiplayer) && (query.includeHardware || !feature.hardware) && (query.includeRemotePlay || !feature.remotePlay));
   const matches = prepared.games.filter(row => {
+    if (advanced) return advanced.matches(row);
     const game = row.game;
     if (libraryRules.some(rule => rule.appIds.has(game.id) === rule.exclude)) return false;
     if (releaseStatus !== 'all' && game.releaseStatus !== releaseStatus) return false;
@@ -480,6 +479,7 @@ export function runQuery(catalog, input = DEFAULT_QUERY, { libraryRules = [] } =
     });
   }
   return {
+    ...(advanced ? { ignoredLibraries: advanced.ignoredLibraries } : {}),
     query: { ...query, page }, total, page, pageCount, rows,
     columns: visibleFeatures.map(feature => feature.id),
     maxScore: visibleFeatures.reduce((totalScore, feature) => totalScore + Math.max(feature.weight ?? 1, 0), 0),

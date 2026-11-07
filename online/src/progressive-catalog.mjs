@@ -1,4 +1,5 @@
 import { normalizeQuery } from './query.mjs';
+import { parseExpression, expressionRequirements } from './query-expression.mjs';
 import { validateBinaryDescriptor } from './catalog-descriptor.mjs';
 
 export const PRIORITY_MIN_REVIEWS = 20;
@@ -38,5 +39,6 @@ export function mergeCatalogPartitions(priority, remainder) {
 }
 
 export function queryUsesPriority(input, catalog) {
-  return normalizeQuery(input, catalog.features, catalog.tags, catalog.languages).minReviews >= PRIORITY_MIN_REVIEWS;
+  const query = normalizeQuery(input, catalog.features, catalog.tags, catalog.languages);
+  return (query.expression === null ? query.minReviews : expressionRequirements(parseExpression(query.expression, catalog)).minReviews) >= PRIORITY_MIN_REVIEWS;
 }

@@ -1,4 +1,5 @@
 import { prepareCatalog, runQuery, attachGameCredits } from './query.mjs';
+import { countExpressionLines } from './query-line-counts.mjs';
 import { libraryAppIds } from './user-library.mjs';
 import { decodeBinaryCatalog } from './catalog-binary.mjs';
 import { validateBinaryDescriptor, BINARY_MAX_BYTES, JSON_MAX_BYTES, COMPRESSED_MAX_BYTES } from './catalog-descriptor.mjs';
@@ -231,19 +232,30 @@ let catalogSnapshot = null;
 
 // Guard permits importing loadCatalog in Node tests without emulating a worker.
 let localLibraryRules = [];
+let localLibrary = {};
+let countRevision = 0, countCache = null, activeCountRequest = null;
+function cancelLineCounts() {
+  // Acknowledge cancellation before starting another potentially expensive query.
+  if (activeCountRequest !== null) self.postMessage({ type: 'line-counts', requestId: activeCountRequest, cancelled: true });
+  activeCountRequest = null; return ++countRevision;
+}
 if (typeof self !== 'undefined' && typeof self.addEventListener === 'function') {
   self.addEventListener('message', async event => {
     const message = event.data ?? {};
     let token = initialization;
     try {
       if (message.type === 'library') {
+        cancelLineCounts(); countCache = null;
         if (!Array.isArray(message.rules) || message.rules.length > 2 || message.rules.some(rule => typeof rule?.exclude !== 'boolean')) throw new Error('Invalid local library filters.');
         localLibraryRules = message.rules.map(rule => ({ appIds: new Set(libraryAppIds(rule.appIds)), exclude: rule.exclude }));
+        localLibrary = Object.fromEntries(['owned', 'wishlist'].map(kind => [kind, message.lists?.[kind] == null ? null : new Set(libraryAppIds(message.lists[kind]))]));
       } else if (message.type === 'init') {
+        cancelLineCounts(); countCache = null;
         token = ++initialization;
         prepared = null;
         creditsLoading = null;
         localLibraryRules = [];
+        localLibrary = {};
         const loaded = message.catalog
           ? { catalog: message.catalog, manifest: null }
           : await loadCatalog(message.plan?.manifestURL ?? message.manifestURL, {
@@ -291,17 +303,37 @@ if (typeof self !== 'undefined' && typeof self.addEventListener === 'function') 
         try { loaded = await creditsLoading; } catch (error) { creditsLoading = null; throw error; }
         if (token !== initialization) return;
         attachGameCredits(prepared, loaded.credits);
+        cancelLineCounts(); countCache = null;
         self.postMessage({ type: 'credits-ready', compression: loaded.compression, bytes: loaded.bytes });
-      } else if (message.type === 'query') {
+      } else if (message.type === 'query' || message.type === 'line-counts') {
+        const revision = cancelLineCounts();
+        const countsOnly = message.type === 'line-counts';
         if (!prepared) throw new Error('The game catalog has not loaded yet.');
         if (partial && !queryUsesPriority(message.query, prepared)) throw new Error('This filter needs the complete catalog.');
-        const result = runQuery(prepared, message.query, { libraryRules: localLibraryRules });
+        if (partial && (message.lineCounts || countsOnly)) throw new Error('Line counts need the complete catalog.');
+        const result = countsOnly ? { query: message.query, total: message.total } : runQuery(prepared, message.query, { libraryRules: localLibraryRules, library: localLibrary });
         if (message.pinnedGameId && prepared.gameCredits) {
           const index = prepared.gameCredits;
           const position = index.appIds.indexOf(message.pinnedGameId);
           if (position >= 0) result.pinnedCredits = gameCreditNames(index, index.pairs[index.pairIds[position]]);
         }
-        self.postMessage({ type: 'result', requestId: message.requestId, result });
+        if (!countsOnly) self.postMessage({ type: 'result', requestId: message.requestId, result });
+        if ((message.lineCounts || countsOnly) && result.query.expression !== null) {
+          const text = result.query.expression;
+          activeCountRequest = message.requestId;
+          self.postMessage({ type: 'line-counts-start', requestId: message.requestId, text });
+          try {
+            const counts = countCache?.text === text ? countCache.counts : await countExpressionLines(text, prepared, localLibrary, {
+              cancelled: () => revision !== countRevision, finalTotal: result.total,
+            });
+            if (counts && revision === countRevision) countCache = { text, counts };
+            self.postMessage({ type: 'line-counts', requestId: message.requestId, text, counts, cancelled: revision !== countRevision });
+          } catch (error) {
+            self.postMessage({ type: 'line-counts', requestId: message.requestId, text, error: error.message });
+          } finally {
+            if (activeCountRequest === message.requestId) activeCountRequest = null;
+          }
+        }
       } else {
         throw new Error(`Unknown worker message: ${String(message.type)}.`);
       }
