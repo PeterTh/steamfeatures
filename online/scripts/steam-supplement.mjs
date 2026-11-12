@@ -39,6 +39,14 @@ export function achievementSets(schema) {
     !group.archived && group.total_achievements > 0);
 }
 
+/** Number of achievement sets shown for a game with public sets: every public, nonempty group,
+ * including a populated default group (Team Fortress 2's general achievements), so the sets
+ * together hold all public achievements. Portal 2 leaves its default group empty: two sets. */
+export function achievementSetCount(schema) {
+  if (!achievementSets(schema)) return 0;
+  return schema.groups.filter(group => group.ispublic && !group.developeronly && !group.archived && group.total_achievements > 0).length;
+}
+
 export function validateRequirements(body, id) {
   const entry = body?.[id];
   if (!object(entry) || typeof entry.success !== 'boolean') throw new Error('Malformed requirements response');

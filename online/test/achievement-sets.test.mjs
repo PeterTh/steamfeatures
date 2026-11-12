@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { achievementSetIndex, applyAchievementSets, readAchievementSets, projectAchievementSets } from '../scripts/achievement-sets.mjs';
-import { SteamSupplementStore, exportSupplement } from '../scripts/steam-supplement.mjs';
+import { achievementSetIndex, achievementSetCountIndex, applyAchievementSets, readAchievementSets, projectAchievementSets } from '../scripts/achievement-sets.mjs';
+import { SteamSupplementStore, exportSupplement, achievementSetCount } from '../scripts/steam-supplement.mjs';
 import { features } from '../src/features.mjs';
 import { columnState, featureColumns } from '../src/feature-presentation.mjs';
 import { runQuery, parseQuery, serializeQuery } from '../src/query.mjs';
@@ -114,4 +114,31 @@ test('normal imports merge the bundled projection and pin its provenance in ever
   assert.deepEqual(runQuery(binary, { not: ['SET'] }).rows.map(row => row.id), [20]);
   const lock = JSON.parse(await readFile(join(directory, 'site/provenance-lock.json'), 'utf8'));
   assert.deepEqual(lock.sources.achievementSets, manifest.sources.achievementSets);
+});
+
+test('set counts follow the supported list, reach the browser as a compact column and are removed with the flag', () => {
+  const data = { ...input(), setCounts: [3] };
+  const counts = achievementSetCountIndex(data);
+  assert.deepEqual([...counts], [[10, 3]]);
+  for (const setCounts of [[], [3, 4], [0], [2.5], 'x']) {
+    assert.throws(() => achievementSetIndex({ ...data, setCounts }), /set counts/, JSON.stringify(setCounts));
+  }
+  assert.deepEqual(achievementSetCountIndex(input()), new Map(), 'older projections have no counts');
+  const stale = { ...game(20), achievementSetCount: 4 };
+  const games = applyAchievementSets([game(10), stale, { ...game(30), achievementSetCount: 2 }], achievementSetIndex(data), counts);
+  assert.deepEqual(games.map(row => row.achievementSetCount), [3, undefined, 2], 'unknown games keep their fields untouched');
+  assert.equal(Object.hasOwn(games[1], 'achievementSetCount'), false);
+  const bytes = encodeBinaryCatalog({ version: 1, features, games });
+  assert.ok(bytes.includes('{"key":"achievementSetCount","type":"uint"}'));
+  assert.deepEqual(decodeBinaryCatalog(bytes).games.map(row => row.achievementSetCount), [3, undefined, 2]);
+});
+
+test('set counts include a populated default group and exclude hidden, archived and empty groups', () => {
+  const group = (groupid, total_achievements, extra = {}) => ({ groupid, ispublic: true, developeronly: false, archived: false, total_achievements, ...extra });
+  const schema = groups => ({ schema_version: 1, schema_hash: 1, achievements: [], groups });
+  assert.equal(achievementSetCount(schema([group(0, 47), group(1, 41), group(2, 42)])), 3, 'Team Fortress 2 style');
+  assert.equal(achievementSetCount(schema([group(0, 0), group(1, 22), group(2, 29)])), 2, 'Portal 2 style');
+  assert.equal(achievementSetCount(schema([group(0, 5), group(1, 3), group(2, 0), group(3, 4, { archived: true }),
+    group(4, 4, { developeronly: true }), group(5, 4, { ispublic: false })])), 2);
+  assert.equal(achievementSetCount(schema([group(0, 10)])), 0, 'no public sets');
 });

@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { checkedAchievementState, achievementStateIndex, validateAchievementStateDescriptor } from './achievement-refresh.mjs';
+import { checkedAchievementState, achievementStateIndex, achievementSetCounts, validateAchievementStateDescriptor } from './achievement-refresh.mjs';
 import { checkedPlaytimeState, validatePlaytimeStateDescriptor, playtimeIndex } from './review-playtime-state.mjs';
 import { PLAYTIME_FIELDS } from './review-playtime.mjs';
 import { isDeepStrictEqual } from 'node:util';
@@ -121,11 +121,12 @@ export async function verifySite(directory = resolve(ROOT, 'dist'), { minimumGam
     validateAchievementStateDescriptor(manifest.achievementState);
     const state = checkedAchievementState(await readFile(resolve(data, manifest.achievementState.file)), manifest.achievementState);
     if (catalog.sources?.achievementSets?.sha256 !== manifest.achievementState.sha256) throw new Error('Achievement checkpoint provenance mismatch');
-    const index = achievementStateIndex(state);
+    const index = achievementStateIndex(state), counts = achievementSetCounts(state);
     for (const game of catalog.games) {
       const known = index.has(game.id);
       if (game.featureIds.includes(10002) !== (index.get(game.id) === true) ||
-        (game.knownFeatureGroups?.includes('achievement-sets') === true) !== known) throw new Error('Achievement checkpoint does not match game ' + game.id);
+        (game.knownFeatureGroups?.includes('achievement-sets') === true) !== known ||
+        game.achievementSetCount !== (index.get(game.id) === true ? counts.get(game.id) : undefined)) throw new Error('Achievement checkpoint does not match game ' + game.id);
     }
   }
   // Every published playtime value must be the projection of the published state.

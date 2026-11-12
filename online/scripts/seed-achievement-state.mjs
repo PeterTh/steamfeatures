@@ -4,8 +4,8 @@ import { mkdir, readFile, writeFile, rename } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { gzipSync, gunzipSync } from 'node:zlib';
-import { achievementSets, verifySupplement } from './steam-supplement.mjs';
-import { AchievementRefreshStore, emptyAchievementState, decodeAchievementState, achievementStateIndex, ACHIEVEMENT_STATE_SEED } from './achievement-refresh.mjs';
+import { achievementSets, achievementSetCount, verifySupplement } from './steam-supplement.mjs';
+import { AchievementRefreshStore, emptyAchievementState, decodeAchievementState, achievementStateIndex, achievementSetCounts, ACHIEVEMENT_STATE_SEED } from './achievement-refresh.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -37,6 +37,7 @@ export async function seedAchievementState({ directories = [resolve(ROOT, '.cach
             const schema = JSON.parse(gunzipSync(row.body)).response;
             if (achievementSets(schema) !== Boolean(row.has_sets)) throw new Error('Source achievement flag mismatch');
             Object.assign(entry, { successfulAt: row.successful_at, hasSets: Boolean(row.has_sets),
+              ...(row.has_sets ? { setCount: achievementSetCount(schema) } : {}),
               schemaVersion: schema.schema_version, schemaHash: schema.schema_hash });
           }
           if (row.outcome !== 'success') entry.retryAt = new Date(Date.parse(row.checked_at) + 30 * 86400000).toISOString();
@@ -52,10 +53,12 @@ export async function seedAchievementState({ directories = [resolve(ROOT, '.cach
     state.budget = emptyAchievementState().budget;
     const bytes = gzipSync(Buffer.from(JSON.stringify(state)), { level: 9 });
     const sha256 = createHash('sha256').update(bytes).digest('hex');
-    const index = achievementStateIndex(state);
+    const index = achievementStateIndex(state), counts = achievementSetCounts(state);
     const entries = Object.values(state.apps), dates = entries.map(entry => entry.checkedAt).sort();
+    const supported = [...index].filter(([, value]) => value).map(([id]) => id).sort((a, b) => a - b);
+    if (supported.some(id => !counts.has(id))) throw new Error('Every seeded achievement-set game needs a set count');
     const lookup = { version: 1, source: { sha256, checked: entries.length, checkedFrom: dates[0], checkedThrough: dates.at(-1) },
-      known: [...index.keys()].sort((a, b) => a - b), supported: [...index].filter(([, value]) => value).map(([id]) => id).sort((a, b) => a - b) };
+      known: [...index.keys()].sort((a, b) => a - b), supported, setCounts: supported.map(id => counts.get(id)) };
     await mkdir(dirname(output), { recursive: true }); await mkdir(dirname(projection), { recursive: true });
     await writeFile(output + '.tmp', bytes); await rename(output + '.tmp', output);
     await writeFile(projection + '.tmp', JSON.stringify(lookup) + '\n'); await rename(projection + '.tmp', projection);

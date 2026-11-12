@@ -29,25 +29,36 @@ export function achievementSetIndex(data) {
   const index = new Map(data.known.map(id => [id, false]));
   if (index.size > data.source.checked || data.supported.some(id => !index.has(id))) throw new Error('Invalid achievement-set coverage');
   for (const id of data.supported) index.set(id, true);
+  achievementSetCountIndex(data);
   return index;
+}
+
+/** Optional `setCounts` align with `supported`; projections from before set counts omit them. */
+export function achievementSetCountIndex(data) {
+  if (data.setCounts === undefined) return new Map();
+  if (!Array.isArray(data.setCounts) || data.setCounts.length !== data.supported.length ||
+    data.setCounts.some(count => !Number.isSafeInteger(count) || count < 1 || count > 10000)) throw new Error('Invalid achievement set counts');
+  return new Map(data.supported.map((id, i) => [id, data.setCounts[i]]));
 }
 
 export async function readAchievementSets(filename = ACHIEVEMENT_SETS_FILE) {
   const bytes = await readFile(filename);
   const data = JSON.parse(bytes);
-  return { index: achievementSetIndex(data), source: { sha256: sha256(bytes), archiveSha256: data.source.sha256,
+  return { index: achievementSetIndex(data), counts: achievementSetCountIndex(data), source: { sha256: sha256(bytes), archiveSha256: data.source.sha256,
     checkedFrom: data.source.checkedFrom, checkedThrough: data.source.checkedThrough,
     knownGames: data.known.length, supportedGames: data.supported.length } };
 }
 
 /** Apply after ordinary Steam enrichment so its category refresh cannot erase sets. */
-export function applyAchievementSets(games, index) {
+export function applyAchievementSets(games, index, counts = new Map()) {
   return games.map(game => {
     if (!index.has(game.id)) return game;
     const featureIds = game.featureIds.filter(id => id !== ACHIEVEMENT_SETS_ID);
     if (index.get(game.id)) featureIds.push(ACHIEVEMENT_SETS_ID);
-    return { ...game, featureIds: featureIds.sort((a, b) => a - b),
-      knownFeatureGroups: [...new Set([...(game.knownFeatureGroups ?? []), knowledgeGroup])].sort() };
+    const { achievementSetCount: _, ...rest } = game, setCount = index.get(game.id) ? counts.get(game.id) : undefined;
+    return { ...rest, featureIds: featureIds.sort((a, b) => a - b),
+      knownFeatureGroups: [...new Set([...(game.knownFeatureGroups ?? []), knowledgeGroup])].sort(),
+      ...(setCount !== undefined ? { achievementSetCount: setCount } : {}) };
   });
 }
 

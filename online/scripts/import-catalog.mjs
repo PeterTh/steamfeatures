@@ -22,7 +22,7 @@ import { writeGameImages, retainGameImages } from './game-images.mjs';
 import { normalizeGameCredits } from './game-credits.mjs';
 import { readAchievementSets, applyAchievementSets } from './achievement-sets.mjs';
 import { AchievementRefreshStore, ACHIEVEMENT_STATE_SEED, decodeAchievementState, checkedAchievementState,
-  validateAchievementStateDescriptor, writeAchievementState, achievementStateIndex, refreshAchievementSets } from './achievement-refresh.mjs';
+  validateAchievementStateDescriptor, writeAchievementState, achievementStateIndex, achievementSetCounts, refreshAchievementSets } from './achievement-refresh.mjs';
 import { acquireCollectionLock } from './collect-steam-supplement.mjs';
 import { applyReviewPlaytime } from './review-playtime.mjs';
 import { PLAYTIME_STATE_SEED, PLAYTIME_REFRESH_DIRECTORY, loadPlaytimeState, writePlaytimeState, playtimeIndex, playtimeSource } from './review-playtime-state.mjs';
@@ -189,14 +189,14 @@ export async function importCatalog({ sourceFile, output = resolve(ROOT, 'dist')
     }
     const snapshot = achievementStore.snapshot(), index = achievementStateIndex(snapshot);
     achievementState = await writeAchievementState(snapshot, dataDirectory);
-    normalizedGames = applyAchievementSets(normalizedGames, index);
+    normalizedGames = applyAchievementSets(normalizedGames, index, achievementSetCounts(snapshot));
     const dates = Object.values(snapshot.apps).map(entry => entry.checkedAt).sort();
     sources.achievementSets = { sha256: achievementState.sha256, sourceArchives: snapshot.sourceArchives,
       checkedFrom: dates[0] ?? null, checkedThrough: dates.at(-1) ?? null,
       knownGames: index.size, supportedGames: [...index.values()].filter(Boolean).length };
   } else {
     const achievementSets = await readAchievementSets(achievementSetsFile);
-    normalizedGames = applyAchievementSets(normalizedGames, achievementSets.index);
+    normalizedGames = applyAchievementSets(normalizedGames, achievementSets.index, achievementSets.counts);
     sources.achievementSets = achievementSets.source;
   }
   // Review playtime: the checked-in seed, the published checkpoint and the refresh job's

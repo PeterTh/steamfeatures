@@ -294,6 +294,25 @@ const advancedEditor = createAdvancedEditor({
     value.title = detail.title = `Playtime when the review was written, from the reviews that record it. Half of these reviewers had played less than the median; the middle half lies between the 25th and 75th percentiles.`;
     dl.append(element('dt', '', 'Median playtime at review'), value, detail);
   }
+  /** Feature score, with the secondary counts behind a small info button (hover, focus or click). */
+  function addFeatureScore(dl, g, counts) {
+    const value = element('dd', 'card-score', g.score == null ? 'Unknown' : `${g.score} / ${latestResult.maxScore}`);
+    const button = element('button', 'count-info-button'), popover = element('div', 'count-popover');
+    button.type = 'button'; button.setAttribute('aria-label', 'Other feature counts'); button.setAttribute('aria-expanded', 'false');
+    button.setAttribute('aria-controls', popover.id = 'card-feature-counts'); button.append(icon('info'));
+    const list = element('dl'); for (const [label, count] of counts) addPair(list, label, count);
+    popover.append(list);
+    button.addEventListener('click', () => {
+      const open = !value.classList.contains('counts-open');
+      // An explicit close overrides hover/focus display until the pointer or focus leaves the button.
+      value.classList.toggle('counts-open', open); value.classList.toggle('counts-dismissed', !open); button.setAttribute('aria-expanded', String(open));
+      // Like tag clicks, interacting with a hover card keeps it open.
+      if (open && !tipPinned) pinTip();
+    });
+    for (const type of ['pointerleave', 'blur']) button.addEventListener(type, () => value.classList.remove('counts-dismissed'));
+    value.append(button, popover);
+    dl.append(element('dt', '', 'Feature score'), value);
+  }
   function formatHours(hours, unit = true) {
     const text = hours >= 900 ? '900+' : hours > 0 && hours < 0.1 ? '<0.1' : String(hours);
     return unit ? text + ' h' : text;
@@ -429,13 +448,13 @@ const advancedEditor = createAdvancedEditor({
       loadGameImage(id).catch(() => steamHeaderURL(id)).then(url => { if (gameCard === card) image.src = url; });
       body.append(element('p', 'tip-kicker', (g.earlyAccess ? 'Early Access · ' : '') + g.releaseStatus), element('h3', '', g.name)); tip.setAttribute('aria-label', g.name + ' details');
       const all = [...columns.values()], dl = element('dl'), non = all.filter(f => !f.accessibility), count = list => g.featureDataKnown ? list.filter(f => columnState(g, f).listed).length + ' / ' + list.length : 'Unknown';
-      addPair(dl, 'Feature score', g.score == null ? 'Unknown' : `${g.score} / ${latestResult.maxScore}`); addPair(dl, 'Visible feature count', count(visibleFeatures));
-      addPair(dl, 'Non-accessibility total', count(non)); addPair(dl, 'All features', count(all));
+      addFeatureScore(dl, g, [['Visible feature count', count(visibleFeatures)], ['Non-accessibility total', count(non)], ['All features', count(all)]]);
       addPair(dl, g.reviewSource === 'steam' ? 'Steam-purchase reviews' : 'Reviews', fmt(g.reviews));
       if (g.positivePercent != null) addPair(dl, 'Positive reviews', g.positivePercent + '%');
       addPlaytime(dl, g);
       addPair(dl, 'Release date', date(g.releaseISO));
-      if (g.achievementCount !== undefined) addPair(dl, 'Achievements', fmt(g.achievementCount));
+      if (g.achievementCount !== undefined) addPair(dl, 'Achievements', fmt(g.achievementCount) +
+        (g.achievementSetCount ? ` (${g.achievementSetCount} ${g.achievementSetCount === 1 ? 'set' : 'sets'})` : ''));
       if (g.metadataUpdatedAt) addPair(dl, 'Steam metadata checked', date(g.metadataUpdatedAt));
       body.append(dl);
       card.dl = dl; updateCardCredits(g);

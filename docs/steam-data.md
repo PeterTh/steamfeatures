@@ -220,6 +220,12 @@ The final suite passed **392 tests**, including new-game priority, daily attempt
 
 Against the same current production catalog, the release preview's initial/remainder files grew by **2,503 / 2,138 bytes Brotli** (4,641 total), or **1,216 / 1,154 bytes gzip** (2,370 total). The separate 1,418,274-byte achievement seed/checkpoint is build-only. These measurements include the completed top-up and updated provenance; the earlier 176-game projection measurement above remains a separate, older snapshot comparison.
 
+### Achievement set counts
+
+Game cards show the number of achievement sets beside the achievement count, for example "51 (2 sets)" for Portal 2. A set is any public, nonempty achievement group that is neither developer-only nor archived. This includes the default group when it holds achievements, so the sets together hold every public achievement. Team Fortress 2 has 16: general achievements plus one set per class and more. Portal 2 leaves its default group empty and has two. Games without public sets beyond the default group get no count.
+
+Checkpoint entries for set games store `setCount` beside the flag; browser games receive `achievementSetCount` as a compact unsigned column. On November 12 the seed was regenerated from both completed archives (`62846e08…` and `290a08a7…`). The 179 counts were the only change: every other observation was identical. Hash-only confirmations keep the count observed for the same schema version and hash, and merges keep a count across checkpoints only when the schema identity matches. A set game whose checkpoint lacks a count, such as one whose schema changed in a daily refresh before counts existed, is fetched once in full at the same priority as interrupted schema checks. Production verification checks every card count against the checkpoint.
+
 ## Review playtime
 
 The playtime collector measures how long reviewers had played each game when they wrote their reviews. It runs separately from daily deployments and the supplemental collection, and it does not publish a browser feature by itself:

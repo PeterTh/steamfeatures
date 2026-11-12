@@ -6,14 +6,15 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { gzipSync } from 'node:zlib';
 import { AchievementRefreshStore, emptyAchievementState, validateAchievementState, decodeAchievementState, checkedAchievementState,
-  writeAchievementState, achievementStateIndex, selectAchievementChecks, refreshAchievementSets } from '../scripts/achievement-refresh.mjs';
+  writeAchievementState, achievementStateIndex, achievementSetCounts, selectAchievementChecks, refreshAchievementSets } from '../scripts/achievement-refresh.mjs';
 import { importCatalog } from '../scripts/import-catalog.mjs';
 import { acquireCollectionLock } from '../scripts/collect-steam-supplement.mjs';
 
 const NOW = Date.parse('2026-10-23T12:00:00Z'), DAY = 86400000;
 const iso = ms => new Date(ms).toISOString();
+// schema(true) has a populated default group and one extra set: two sets.
 const known = (hasSets = false, at = NOW - 8 * DAY) => ({ checkedAt: iso(at), successfulAt: iso(at), outcome: 'success',
-  hasSets, schemaVersion: 1, schemaHash: 123, release: 'released' });
+  hasSets, ...(hasSets ? { setCount: 2 } : {}), schemaVersion: 1, schemaHash: 123, release: 'released' });
 const game = (id, reviews = 100, releaseStatus = 'released') => ({ id, reviews, releaseStatus, featureIds: [22] });
 const schema = (hasSets, hash = 123) => ({ schema_version: 1, schema_hash: hash, achievements: [],
   groups: (hasSets ? [0, 1] : [0]).map(groupid => ({ groupid, ispublic: true, developeronly: false, archived: false, total_achievements: 1 })) });
@@ -176,6 +177,10 @@ test('the bundled offline projection and persistent seed contain exactly the sam
   assert.equal(projection.source.sha256, createHash('sha256').update(bytes).digest('hex'));
   assert.deepEqual(projection.known, [...index.keys()].sort((a, b) => a - b));
   assert.deepEqual(projection.supported, [...index].filter(([, value]) => value).map(([id]) => id).sort((a, b) => a - b));
+  const counts = achievementSetCounts(state);
+  assert.deepEqual(projection.setCounts, projection.supported.map(id => counts.get(id)), 'every set game carries its count');
+  // Team Fortress 2 has general achievements in its default group plus one set per class and more.
+  assert.deepEqual([440, 620].map(id => counts.get(id)), [16, 2]);
 });
 
 test('importer publishes and resumes the achievement checkpoint without per-game requirements calls', async t => {
@@ -195,4 +200,28 @@ test('importer publishes and resumes the achievement checkpoint without per-game
   assert.deepEqual(JSON.parse(await readFile(join(output, 'provenance-lock.json'), 'utf8')).achievementState, manifest.achievementState);
   // Importer releases its own PID lock after the build.
   await acquireCollectionLock(join(directory, 'steam-achievements/refresh.lock'));
+});
+
+test('set counts come from full schemas, survive hash-only confirmations and backfill older checkpoints', async t => {
+  const legacy = { ...known(true, NOW - DAY) }; delete legacy.setCount;
+  const { store, options, calls } = await setup(t, { 1: known(true), 2: legacy, 3: known(false) });
+  assert.deepEqual(selectAchievementChecks([game(1), game(2), game(3)], store.entries(), NOW).map(row => [row.id, row.priority]), [[2, 1], [1, 2], [3, 2]],
+    'a recently checked set game without a count is due before ordinary rotation');
+  await refreshAchievementSets({ ...options, games: [game(1), game(2), game(3), game(4)] });
+  assert.deepEqual(calls.map(value => [value.appid, value.hash_only ?? false]), [[4, false], [2, false], [1, true], [3, true]]);
+  assert.deepEqual([1, 2, 3, 4].map(id => store.get(id).setCount), [2, 2, undefined, 2]);
+  assert.deepEqual([...achievementSetCounts(store.snapshot())], [[1, 2], [2, 2], [4, 2]]);
+});
+
+test('merging keeps a set count only for the same schema identity and rejects counts without sets', async t => {
+  const { store } = await setup(t, { 1: known(true), 2: known(true) });
+  const confirmed = { ...known(true, NOW) }; delete confirmed.setCount;
+  const changed = { ...confirmed, schemaHash: 456 };
+  store.merge({ ...emptyAchievementState(), apps: { 1: confirmed, 2: changed } });
+  assert.equal(store.get(1).setCount, 2, 'a newer hash-only confirmation of the same schema keeps the count');
+  assert.equal(store.get(2).setCount, undefined, 'a different schema needs its own count');
+  assert.equal(store.get(2).successfulAt, iso(NOW));
+  for (const entry of [{ ...known(false), setCount: 2 }, { ...known(true), setCount: 0 }, { ...known(true), setCount: 1.5 }]) {
+    assert.throws(() => validateAchievementState({ ...emptyAchievementState(), apps: { 1: entry } }), /set count/);
+  }
 });

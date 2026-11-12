@@ -7,7 +7,7 @@ import { setTimeout as pause } from 'node:timers/promises';
 import { gzipSync, gunzipSync } from 'node:zlib';
 import { createSteamClient } from './steam-client.mjs';
 import { createSteamResponseArchive } from './steam-archive.mjs';
-import { achievementSets } from './steam-supplement.mjs';
+import { achievementSets, achievementSetCount } from './steam-supplement.mjs';
 
 export const ACHIEVEMENT_STATE_FORMAT = 'steam-feature-atlas-achievement-state-v1';
 export const ACHIEVEMENT_STATE_SEED = resolve(dirname(fileURLToPath(import.meta.url)), '../data/achievement-state.json.gz');
@@ -16,7 +16,7 @@ const iso = value => new Date(value).toISOString();
 const validTime = value => typeof value === 'string' && Number.isFinite(Date.parse(value));
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
-const goodKeys = ['hasSets', 'schemaVersion', 'schemaHash', 'successfulAt'];
+const goodKeys = ['hasSets', 'setCount', 'schemaVersion', 'schemaHash', 'successfulAt'];
 
 function validateEntry(entry) {
   if (!object(entry) || !validTime(entry.checkedAt) || !['success', 'unavailable', 'error'].includes(entry.outcome) ||
@@ -29,8 +29,13 @@ function validateEntry(entry) {
     throw new Error('Invalid usable achievement checkpoint');
   }
   if (entry.outcome === 'success' && entry.hasSets === undefined) throw new Error('Missing successful achievement flag');
+  if (entry.setCount !== undefined && (entry.hasSets !== true || !Number.isSafeInteger(entry.setCount) || entry.setCount < 1 || entry.setCount > 10000)) {
+    throw new Error('Invalid achievement set count');
+  }
   return entry;
 }
+/** Checkpoints written before set counts existed carry only the flag; such games need one full schema. */
+const missingSetCount = entry => entry?.hasSets === true && entry.setCount === undefined;
 
 export function emptyAchievementState() {
   return { format: ACHIEVEMENT_STATE_FORMAT, sourceArchives: [], apps: {}, pacing: { minimumSpacingMs: 1000 },
@@ -93,9 +98,14 @@ function mergeEntry(old, value) {
   const usable = (value.successfulAt ?? '') > (old.successfulAt ?? '') ? value : old;
   const merged = { ...attempt };
   for (const key of goodKeys) {
-    if (usable.hasSets !== undefined) merged[key] = usable[key];
+    if (usable.hasSets !== undefined && usable[key] !== undefined) merged[key] = usable[key];
     else delete merged[key];
   }
+  // A set count belongs to a schema identity. Hash-only confirmations and older checkpoints
+  // carry only the flag, so keep a count observed for the same schema on the other side.
+  const other = usable === value ? old : value;
+  if (missingSetCount(merged) && other.setCount !== undefined && other.hasSets === true &&
+    other.schemaHash === merged.schemaHash && other.schemaVersion === merged.schemaVersion) merged.setCount = other.setCount;
   return validateEntry(merged);
 }
 
@@ -146,14 +156,19 @@ export function achievementStateIndex(state) {
   return new Map(Object.entries(state.apps).filter(([, value]) => typeof value.hasSets === 'boolean').map(([id, value]) => [Number(id), value.hasSets]));
 }
 
+/** Set counts for games with public sets whose count has been observed. */
+export function achievementSetCounts(state) {
+  return new Map(Object.entries(state.apps).filter(([, value]) => value.setCount !== undefined).map(([id, value]) => [Number(id), value.setCount]));
+}
+
 export function selectAchievementChecks(games, entries, now) {
   return games.filter(game => game.featureIds.includes(22)).flatMap(game => {
     const old = entries.get(game.id);
     const released = game.releaseStatus === 'released' && (old?.release === 'upcoming' ||
       (old?.outcome === 'unavailable' && old.release === undefined));
     if (old && !released && Date.parse(old.retryAt ?? old.checkedAt) > now) return [];
-    if (old?.outcome === 'success' && !old.needsSchema && !released && now - Date.parse(old.checkedAt) < 7 * DAY) return [];
-    const priority = !old ? 0 : released || old.needsSchema || (old.outcome === 'error' && old.hasSets === undefined) ? 1 : 2;
+    if (old?.outcome === 'success' && !old.needsSchema && !missingSetCount(old) && !released && now - Date.parse(old.checkedAt) < 7 * DAY) return [];
+    const priority = !old ? 0 : released || old.needsSchema || missingSetCount(old) || (old.outcome === 'error' && old.hasSets === undefined) ? 1 : 2;
     return [{ ...game, priority, checkedAt: old?.checkedAt ?? '' }];
   }).sort((a, b) => a.priority - b.priority || (a.priority === 2 ? a.checkedAt.localeCompare(b.checkedAt) : 0)
     || (b.reviews ?? 0) - (a.reviews ?? 0) || a.id - b.id);
@@ -215,7 +230,8 @@ export async function refreshAchievementSets({ store, games, directory, fetchImp
   });
   const success = (id, schema, game) => {
     const checkedAt = iso(now());
-    const entry = { checkedAt, outcome: 'success', successfulAt: checkedAt, hasSets: achievementSets(schema),
+    const hasSets = achievementSets(schema);
+    const entry = { checkedAt, outcome: 'success', successfulAt: checkedAt, hasSets, ...(hasSets ? { setCount: achievementSetCount(schema) } : {}),
       ...schemaIdentity(schema), ...((game?.releaseStatus ?? store.get(id)?.release) ? { release: game?.releaseStatus ?? store.get(id)?.release } : {}) };
     store.put(id, entry); healthyAt = now(); return entry;
   };
@@ -233,12 +249,12 @@ export async function refreshAchievementSets({ store, games, directory, fetchImp
       if (budget.attempts >= maxRequests || elapsed() >= maxDurationMs) { summary.reason = 'budget'; break; }
       const old = store.get(game.id);
       try {
-        if (old?.hasSets !== undefined && !old.needsSchema) {
+        if (old?.hasSets !== undefined && !old.needsSchema && !missingSetCount(old)) {
           const identity = schemaIdentity(await client.getGameAchievements(game.id, { hashOnly: true }));
           if (identity.schemaHash === old.schemaHash && identity.schemaVersion === old.schemaVersion) {
             const checkedAt = iso(now());
             store.put(game.id, { checkedAt, outcome: 'success', successfulAt: checkedAt, hasSets: old.hasSets,
-              ...identity, release: game.releaseStatus });
+              ...(old.setCount !== undefined ? { setCount: old.setCount } : {}), ...identity, release: game.releaseStatus });
             summary.unchanged++; summary.checked++;
             await progress(summary); continue;
           }
