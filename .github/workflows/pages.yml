@@ -32,7 +32,11 @@ jobs:
     permissions:
       contents: read
       pages: read
+    outputs:
+      new_responses: ${{ steps.journals.outputs.count }}
     steps:
+      - name: Mark the run start for response archiving
+        run: echo "RUN_STARTED=$(date -u +%Y%m%dT%H%M%S)" >> "$GITHUB_ENV"
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
@@ -120,6 +124,36 @@ jobs:
           include-hidden-files: true
           compression-level: 0
           retention-days: 90
+      # The cache carries earlier journals forward, so select only responses fetched
+      # during this run. Journal names start with the UTC fetch time (YYYYMMDDTHHMMSS).
+      - name: Collect this run's response journals for the private archive
+        id: journals
+        if: ${{ always() && !inputs.bootstrap_release }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/new-responses"
+          count=0
+          for source in steam-responses:online/.cache/steam-responses steam-achievements:online/.cache/steam-achievements/responses; do
+            label="${source%%:*}" dir="${source#*:}"
+            [ -d "$dir" ] || continue
+            mkdir -p "$out/$label"
+            while IFS= read -r -d '' file; do
+              name="$(basename "$file")"
+              if [[ ! "${name:0:15}" < "$RUN_STARTED" ]]; then cp -p "$file" "$out/$label/"; count=$((count + 1)); fi
+            done < <(find "$dir" -maxdepth 1 -type f -name '*.json.gz' -print0)
+          done
+          echo "count=$count" >> "$GITHUB_OUTPUT"
+          echo "$count response journals fetched since $RUN_STARTED"
+          if [ "$count" -gt 0 ]; then tar -cf "$RUNNER_TEMP/steam-responses-${{ github.run_id }}-${{ github.run_attempt }}.tar" -C "$out" .; fi
+      - name: Hand this run's journals to the archive job
+        if: ${{ always() && !inputs.bootstrap_release && steps.journals.outputs.count != '0' && steps.journals.outputs.count != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: new-steam-responses-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/steam-responses-${{ github.run_id }}-${{ github.run_attempt }}.tar
+          compression-level: 0
+          retention-days: 7
       - name: Verify production data, checksums and completed refresh state
         run: node --max-old-space-size=4096 scripts/verify-site.mjs
         working-directory: online
@@ -133,6 +167,38 @@ jobs:
           name: catalog-provenance
           path: online/dist/provenance-lock.json
           retention-days: 7
+
+  # Raw responses are kept privately and durably; artifacts expire and caches can be evicted.
+  # A failure here marks the run failed but never blocks or undoes the deployment.
+  archive-responses:
+    needs: build
+    if: ${{ always() && needs.build.outputs.new_responses != '' && needs.build.outputs.new_responses != '0' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions: {}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: new-steam-responses-${{ github.run_id }}-${{ github.run_attempt }}
+      - name: Upload to the private data archive
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.DATA_ARCHIVE_TOKEN }}
+          ARCHIVE_REPO: PeterTh/steamfeatures-data
+          NAME: steam-responses-${{ github.run_id }}-${{ github.run_attempt }}.tar
+        run: |
+          set -euo pipefail
+          if [ -z "$GH_TOKEN" ]; then echo "::error::DATA_ARCHIVE_TOKEN is not set"; exit 1; fi
+          tag="responses-$(date -u +%Y-%m)"
+          sha256sum "$NAME" > "$NAME.sha256"
+          if ! gh release view "$tag" --repo "$ARCHIVE_REPO" > /dev/null 2>&1; then
+            gh release create "$tag" --repo "$ARCHIVE_REPO" --title "Steam responses $(date -u +%Y-%m)" \
+              --notes "Raw Steam response journals from daily workflow runs: one tar per run, named by run ID and attempt, with a SHA-256 file."
+          fi
+          gh release upload "$tag" "$NAME" "$NAME.sha256" --repo "$ARCHIVE_REPO" --clobber
+          uploaded="$(gh release view "$tag" --repo "$ARCHIVE_REPO" --json assets --jq ".assets[] | select(.name == \"$NAME\") | .size")"
+          if [ "$uploaded" != "$(stat -c %s "$NAME")" ]; then echo "::error::Uploaded size $uploaded does not match"; exit 1; fi
+          echo "Archived $NAME ($uploaded bytes) in $ARCHIVE_REPO release $tag"
 
   deploy:
     needs: build
