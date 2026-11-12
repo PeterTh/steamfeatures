@@ -23,6 +23,7 @@
     "collect:steam": "node --max-old-space-size=4096 scripts/collect-steam-data.mjs",
     "collect:supplement": "node --max-old-space-size=4096 scripts/collect-steam-supplement.mjs",
     "collect:playtime": "node --max-old-space-size=4096 scripts/collect-steam-playtime.mjs",
+    "seed:playtime": "node scripts/review-playtime-state.mjs --seed",
     "project:achievement-sets": "node scripts/seed-achievement-state.mjs",
     "start": "node scripts/serve.mjs"
   },

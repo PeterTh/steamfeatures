@@ -1,7 +1,8 @@
 /** Offline encoder for the browser's versioned columnar catalog format. */
 import { BINARY_FORMAT, BINARY_MAGIC, BINARY_LIMITS, decodeBinaryCatalog } from '../src/catalog-binary.mjs';
 
-const specialNumbers = new Set(['reviews', 'positivePercent', 'steamLookupResultCode', 'achievementCount']);
+const specialNumbers = new Set(['reviews', 'positivePercent', 'steamLookupResultCode', 'achievementCount',
+  'playtimeP25', 'playtimeP50', 'playtimeP75']);
 const invalid = detail => new Error(`Cannot encode binary catalog: ${detail}.`);
 const compareText = (a, b) => a < b ? -1 : a > b ? 1 : 0;
 const own = (object, key) => Object.hasOwn(object, key);

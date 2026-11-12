@@ -7,8 +7,8 @@ import { normalizeCreditSearch } from './game-credits.mjs';
 
 export const EXPRESSION_LIMIT = 16384;
 export const RELEASE_VALUES = ['released', 'released-ea', 'early-access', 'upcoming', 'all'];
-export const EXPRESSION_FIELDS = ['feature', 'tag', 'title', 'developer', 'publisher', 'reviews', 'rating', 'release', 'date', ...compatibilityTargets.map(t => t.parameter), 'language', 'library'];
-const numeric = new Set(['reviews', 'rating', 'date']);
+export const EXPRESSION_FIELDS = ['feature', 'tag', 'title', 'developer', 'publisher', 'reviews', 'rating', 'playtime', 'release', 'date', ...compatibilityTargets.map(t => t.parameter), 'language', 'library'];
+const numeric = new Set(['reviews', 'rating', 'playtime', 'date']);
 const fold = value => String(value).normalize('NFKC').toLowerCase();
 const negate = value => value === null ? null : !value;
 const or = values => values.includes(true) ? true : values.includes(null) ? null : false;
@@ -155,6 +155,11 @@ function validateAtom(node, catalog) {
     if (!/^(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?$/.test(node.value) || !Number.isFinite(number) || number < 0 || (field === 'reviews' ? !Number.isSafeInteger(number) : number > 100)) fail(field === 'reviews' ? 'Review counts must be nonnegative whole numbers.' : 'Ratings must be percentages from 0 to 100.');
     node.value = number; return;
   }
+  if (field === 'playtime') {
+    const number = Number(node.value);
+    if (!/^(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?$/.test(node.value) || !Number.isFinite(number) || number < 0) fail('Median playtime is a nonnegative number of hours.');
+    node.value = number; return;
+  }
   if (field === 'language' && !LANGUAGE_KINDS.some(k => k.key === node.kind)) fail('Choose interface, audio, or subtitles for language support.');
   if (node.regex !== undefined) return;
   node.value = node.value.normalize('NFKC').trim();
@@ -249,7 +254,7 @@ export function compileExpression(tree, prepared, library = {}) {
       const names = pattern ? prepared.gameCredits.names.map(pattern) : prepared.creditSearchNames.map(name => name.includes(normalizeCreditSearch(value)));
       return row => row.credits?.[role] == null ? null : row.credits[role].some(id => names[id]);
     }
-    if (field === 'reviews' || field === 'rating') return row => compare(row[field], op, value);
+    if (field === 'reviews' || field === 'rating' || field === 'playtime') return row => compare(row[field], op, value);
     if (field === 'date') { const low = resolveReleaseBound(value), high = resolveReleaseBound(value, true); return row => compare(row.release, op, low, high); }
     if (field === 'release') {
       const values = pattern ? RELEASE_VALUES.filter(pattern) : [value];
@@ -280,7 +285,7 @@ export function basicExpression(query, catalog, libraryFilters = {}) {
   for (const kind of ['has', 'not']) for (const id of query[kind]) atom('feature', catalog.features.find(f => f.id === id).key, kind === 'not');
   for (const kind of ['hasTags', 'notTags']) for (const tag of query[kind]) atom('tag', tag, kind === 'notTags');
   for (const kind of ['hasLanguages', 'notLanguages']) for (const language of query[kind]) parts.push(`${kind === 'notLanguages' ? 'NOT ' : ''}language:${language}`);
-  for (const [field, name, op] of [['minReviews', 'reviews', '>='], ['maxReviews', 'reviews', '<='], ['minRating', 'rating', '>='], ['maxRating', 'rating', '<=']]) {
+  for (const [field, name, op] of [['minReviews', 'reviews', '>='], ['maxReviews', 'reviews', '<='], ['minRating', 'rating', '>='], ['maxRating', 'rating', '<='], ['minPlaytime', 'playtime', '>='], ['maxPlaytime', 'playtime', '<=']]) {
     if (query[field] !== null && (field !== 'minReviews' || query[field] > 0)) parts.push(`${name} ${op} ${query[field]}`);
   }
   if (query.release !== 'all') atom('release', query.release);
@@ -322,7 +327,7 @@ export function expressionToBasic(text, catalog, availableLibrary = { owned: tru
   }
   // Prune missing literal lists before simplification, without executing regexes on the UI thread.
   const tree = simplify(pruneMissing(parseExpression(text, catalog)) ?? { type: 'all' });
-  const filters = { expression: null, q: '', developer: '', publisher: '', has: [], not: [], hasTags: [], notTags: [], hasLanguages: [], notLanguages: [], minReviews: 0, maxReviews: null, minRating: null, maxRating: null, release: 'all', releaseFrom: '', releaseTo: '', compatibility: Object.fromEntries(compatibilityTargets.map(t => [t.key, 'ignore'])) };
+  const filters = { expression: null, q: '', developer: '', publisher: '', has: [], not: [], hasTags: [], notTags: [], hasLanguages: [], notLanguages: [], minReviews: 0, maxReviews: null, minRating: null, maxRating: null, minPlaytime: null, maxPlaytime: null, release: 'all', releaseFrom: '', releaseTo: '', compatibility: Object.fromEntries(compatibilityTargets.map(t => [t.key, 'ignore'])) };
   const libraryFilters = { owned: '', wishlist: '' };
   for (const term of tree.type === 'and' ? tree.children : [tree]) {
     if (term.type === 'all') continue;
@@ -347,7 +352,7 @@ export function expressionToBasic(text, catalog, availableLibrary = { owned: tru
       const lower = v => { low = low === null || v > low ? v : low; }, upper = v => { high = high === null || v < high ? v : high; };
       for (const e of entries) {
         let op = e.negative ? opposite[e.op] : e.op, v = e.value;
-        if (op === '!=' || (field === 'rating' && ['<', '>'].includes(op))) { valid = false; break; }
+        if (op === '!=' || (['rating', 'playtime'].includes(field) && ['<', '>'].includes(op))) { valid = false; break; }
         if (field === 'date') {
           const start = resolveReleaseBound(v), end = resolveReleaseBound(v, true);
           if (op === '=') { lower(start); upper(end); }
@@ -364,6 +369,7 @@ export function expressionToBasic(text, catalog, availableLibrary = { owned: tru
       if (!valid || (low !== null && high !== null && low > high)) { lose(); continue; }
       if (field === 'date') { filters.releaseFrom = low ?? ''; filters.releaseTo = high ?? ''; }
       else if (field === 'reviews') { filters.minReviews = low ?? 0; filters.maxReviews = high ?? (low === 0 ? Number.MAX_SAFE_INTEGER : null); }
+      else if (field === 'playtime') { filters.minPlaytime = low; filters.maxPlaytime = high; }
       else { filters.minRating = low; filters.maxRating = high; }
       continue;
     }

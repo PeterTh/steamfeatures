@@ -246,3 +246,28 @@ The measure is playtime *at review*, a property of reviewers rather than of all 
 **Pacing.** Requests are serial, with a 1,200 ms post-response pause (`STEAM_REQUEST_SPACING_MS`, 1,000–60,000). An HTTP 429 raises the pause to at least 1,500 ms and persists that minimum. Retry-After cooldowns, the PID lock, `progress.json` and `request-failures.jsonl` behave as in the supplemental collector. `--limit N` caps requests for a partial run. `--seed-file` and `--manifest` choose the seed source. `--export-only` exports without Steam requests. Rerun the same command to resume.
 
 **Export.** On completion, the collector writes `steam-playtime.<hash>.jsonl.gz` (format `steam-feature-atlas-playtime-v1`) and `archive.json`. The header records the seed, edges, review-row layout and counts. Each app record contains its review population, method, total, cumulative counts, measured edge count, `unknownAtReview` and compact review rows. Paged games include every review; band games include their first page. Each row holds `[recommendationid, created, flags, minutesAtReview, minutesForever, minutesLastTwoWeeks, lastPlayed, language]`. Verification checks the checksum, ordering, counts, and every paged histogram against its review rows.
+
+**First complete collection.** The seed froze **61,201 games** with at least 20 reviews from the 2026-11-07 catalog. Collection ran from `2026-11-08T11:42:50Z` to `2026-11-12T08:03:05Z`, about 3 days 20 hours including restarts.
+
+| Outcome | Games |
+| --- | ---: |
+| Measured by paging every review | 47,346 |
+| Measured by band counts | 13,735 |
+| Unavailable (EResult 42, delisted) | 120 |
+| Unresolved failures | 0 |
+
+The checkpoint journaled **221,445 responses**. No HTTP 429 occurred. Transient failures were HTTP 502s during the weekly Tuesday maintenance, EResult 10/16/20 and network timeouts. One EResult 10 stopped the run before the cache-bypassing retry fix (c787391) and was resumed. After the fix, every transient failure succeeded on retry. The verified export is `steam-playtime.5ecd98ba43fe5c7d.jsonl.gz` (133,277,268 bytes; SHA-256 `5ecd98ba43fe5c7d5399968b1174490185fdd5f5a470a029c84e5ded19219c2c`). The projection summarizes **60,720 games**. Of the measured games, 354 have fewer than 20 reviews that record playtime. Another 7 have playtime missing from most reviews (Warzone, Battlefield REDSEC and similar).
+
+**Summaries.** Paged games use exact percentiles of their review minutes. Band games interpolate geometrically within a band, linearly within 0–3 hours. A percentile beyond the 900-hour edge reports the 900-hour cap. Percentiles keep tenths of an hour below 10 hours and two significant digits above. Games where fewer than 20 reviews record playtime, or where those reviews are less than half of the total, get no summary. That rule covers apps whose playtime Steam tracks under another app ID: Call of Duty: Warzone records playtime on 119 of 51,637 reviews.
+
+**Maintained state.** `online/data/review-playtime-state.json.gz` (format `steam-feature-atlas-playtime-state-v1`, 1.6 MB) is the checked-in seed. It is generated offline from a verified, completed collection:
+
+```sh
+node online/scripts/review-playtime-state.mjs --seed [--directory <collection>]
+```
+
+Each game has:
+- its latest attempt: time, outcome, and for failures, the failure count and retry time;
+- its latest measurement: time, review population, the catalog review count at that time, method, total, exact known-review count and the three percentiles when there is a summary.
+
+Full responses are not part of the state; they stay in the collection's response journal. The seed reproduces the earlier prototype projection exactly for all 60,720 summarized games. Builds merge the seed, the published checkpoint (`manifest.reviewPlaytimeState`) and, when present, a newer working copy (`online/.cache/review-playtime-refresh/state.json.gz`). For each game, the latest attempt and the latest measurement merge independently, so a later NoMatch never erases an earlier measurement. Builds publish the merged state as `data/review-playtime-state.<hash>.json.gz`, record its checksum in `sources.reviewPlaytime` and the provenance lock, and apply the summaries after Achievement Sets. Browser games receive `playtimeP25`, `playtimeP50` and `playtimeP75` as compact unsigned binary columns. Missing fields mean unknown playtime. Browsers never download the state. Production verification checks every game's playtime fields against it.

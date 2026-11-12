@@ -10,6 +10,7 @@ export const DEFAULT_QUERY = Object.freeze({
   expression: null,
   q: '', developer: '', publisher: '', has: Object.freeze([]), not: Object.freeze([]),
   hasTags: Object.freeze([]), notTags: Object.freeze([]), minReviews: 20, maxReviews: null, minRating: null, maxRating: null,
+  minPlaytime: null, maxPlaytime: null,
   hasLanguages: Object.freeze([]), notLanguages: Object.freeze([]),
   includeAccessibility: false, includeMultiplayer: false, includeHardware: false, includeRemotePlay: false,
   compatibility: Object.freeze(Object.fromEntries(compatibilityTargets.map(target => [target.key, 'ignore']))),
@@ -29,7 +30,7 @@ export const PRESETS = Object.freeze([
   }),
 ]);
 
-const SORTS = new Set(['score', 'features', 'reviews', 'rating', 'title', 'release'].flatMap(field => [`${field}-asc`, `${field}-desc`]));
+const SORTS = new Set(['score', 'features', 'reviews', 'rating', 'playtime', 'title', 'release'].flatMap(field => [`${field}-asc`, `${field}-desc`]));
 const RELEASES = new Set(['released', 'released-ea', 'early-access', 'upcoming', 'all']);
 const titleCollator = new Intl.Collator('en', { sensitivity: 'base', numeric: true });
 const preparedCatalogs = new WeakMap();
@@ -75,6 +76,17 @@ function ratingBound(value, label) {
   }
   const number = Number(value);
   if (!Number.isFinite(number) || number < 0 || number > 100) throw new Error(`${label} must be a percentage from 0 to 100.`);
+  return number;
+}
+
+/** Median playtime at review, in hours (fractions allowed). */
+function playtimeBound(value, label) {
+  if (value === undefined || value === null || value === '') return null;
+  if (!['number', 'string'].includes(typeof value) || !/^(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?$/.test(String(value))) {
+    throw new Error(`${label} must be a nonnegative number of hours.`);
+  }
+  const number = Number(value);
+  if (!Number.isFinite(number) || number < 0) throw new Error(`${label} must be a nonnegative number of hours.`);
   return number;
 }
 
@@ -153,7 +165,7 @@ export function normalizeQuery(input = {}, features, tags = [], languages = []) 
   if (typeof source !== 'object' || Array.isArray(source)) throw new Error('Invalid query.');
   const expression = typeof source.expression === 'string' ? source.expression.replace(/\r\n?/g, '\n') : source.expression ?? null;
   if (expression !== null) parseExpression(expression, { features, tags, languages });
-  if (expression !== null) source = { ...source, q: '', developer: '', publisher: '', has: [], not: [], hasTags: [], notTags: [], hasLanguages: [], notLanguages: [], minReviews: 0, maxReviews: null, minRating: null, maxRating: null, release: 'all', releaseFrom: '', releaseTo: '', compatibility: {}, includeEarlyAccess: false };
+  if (expression !== null) source = { ...source, q: '', developer: '', publisher: '', has: [], not: [], hasTags: [], notTags: [], hasLanguages: [], notLanguages: [], minReviews: 0, maxReviews: null, minRating: null, maxRating: null, minPlaytime: null, maxPlaytime: null, release: 'all', releaseFrom: '', releaseTo: '', compatibility: {}, includeEarlyAccess: false };
   const has = featureList(source.has, index, 'required');
   const not = featureList(source.not, index, 'excluded');
   const conflict = has.find(id => not.includes(id));
@@ -185,12 +197,15 @@ export function normalizeQuery(input = {}, features, tags = [], languages = []) 
   const maxRating = ratingBound(source.maxRating, 'Maximum review rating');
   if (maxReviews !== null && minReviews > maxReviews) throw new Error('Minimum review count must not exceed the maximum.');
   if (minRating !== null && maxRating !== null && minRating > maxRating) throw new Error('Minimum review rating must not exceed the maximum.');
+  const minPlaytime = playtimeBound(source.minPlaytime, 'Minimum median playtime');
+  const maxPlaytime = playtimeBound(source.maxPlaytime, 'Maximum median playtime');
+  if (minPlaytime !== null && maxPlaytime !== null && minPlaytime > maxPlaytime) throw new Error('Minimum median playtime must not exceed the maximum.');
   return {
     expression,
     q: String(source.q ?? '').normalize('NFKC').trim(), has, not, hasTags, notTags, hasLanguages, notLanguages,
     developer: String(source.developer ?? '').normalize('NFKC').trim(),
     publisher: String(source.publisher ?? '').normalize('NFKC').trim(),
-    minReviews, maxReviews, minRating, maxRating,
+    minReviews, maxReviews, minRating, maxRating, minPlaytime, maxPlaytime,
     includeAccessibility: booleanValue(source.includeAccessibility, DEFAULT_QUERY.includeAccessibility, 'Accessibility'),
     includeMultiplayer: booleanValue(source.includeMultiplayer, DEFAULT_QUERY.includeMultiplayer, 'Multiplayer'),
     includeHardware: booleanValue(source.includeHardware, DEFAULT_QUERY.includeHardware, 'Steam hardware'),
@@ -220,6 +235,7 @@ export function parseQuery(search = '', features, tags = [], languages = []) {
     expression: version === '2' ? single('expr') : null,
     q: single('q'), developer: single('dev'), publisher: single('pub'), has: split('has'), not: split('not'), minReviews: single('minReviews'),
     maxReviews: single('maxReviews'), minRating: single('minRating'), maxRating: single('maxRating'),
+    minPlaytime: single('minPlaytime'), maxPlaytime: single('maxPlaytime'),
     hasTags: params.getAll('tag'), notTags: params.getAll('notTag'),
     hasLanguages: split('lang'), notLanguages: split('notLang'),
     includeEarlyAccess: single('ea'), includeAccessibility: single('a11y'), includeMultiplayer: single('mp'), includeHardware: single('hw'), includeRemotePlay: single('rp'),
@@ -244,7 +260,7 @@ export function serializeQuery(input, features, tags = [], languages = []) {
   for (const language of query.hasLanguages) params.append('lang', language);
   for (const language of query.notLanguages) params.append('notLang', language);
   if (query.minReviews !== DEFAULT_QUERY.minReviews) params.set('minReviews', String(query.minReviews));
-  for (const field of ['maxReviews', 'minRating', 'maxRating']) if (query[field] !== null) params.set(field, String(query[field]));
+  for (const field of ['maxReviews', 'minRating', 'maxRating', 'minPlaytime', 'maxPlaytime']) if (query[field] !== null) params.set(field, String(query[field]));
   if (query.includeAccessibility) params.set('a11y', '1');
   if (query.includeMultiplayer) params.set('mp', '1');
   if (query.includeHardware) params.set('hw', '1');
@@ -265,10 +281,15 @@ export function serializeQuery(input, features, tags = [], languages = []) {
   return params.size ? `?v=1&${params.toString()}` : '';
 }
 
-const BASIC_PARAMETERS = ['q', 'dev', 'pub', 'has', 'not', 'tag', 'notTag', 'lang', 'notLang', 'minReviews', 'maxReviews', 'minRating', 'maxRating', 'ea', 'release', 'releaseFrom', 'releaseTo', ...compatibilityTargets.map(t => t.parameter)];
+const BASIC_PARAMETERS = ['q', 'dev', 'pub', 'has', 'not', 'tag', 'notTag', 'lang', 'notLang', 'minReviews', 'maxReviews', 'minRating', 'maxRating', 'minPlaytime', 'maxPlaytime', 'ea', 'release', 'releaseFrom', 'releaseTo', ...compatibilityTargets.map(t => t.parameter)];
 
 function knownReviews(value) {
   return Number.isSafeInteger(value) && value >= 0 ? value : null;
+}
+
+/** Published in tenths of an hour; the filter and sort use hours. */
+export function knownPlaytime(tenths) {
+  return Number.isSafeInteger(tenths) && tenths >= 0 ? tenths / 10 : null;
 }
 
 function knownRating(value, reviews) {
@@ -359,6 +380,7 @@ export function prepareCatalog(catalog) {
       title: String(game.name ?? '').normalize('NFKC').toLowerCase(),
       reviews,
       rating: knownRating(game.positivePercent, reviews),
+      playtime: knownPlaytime(game.playtimeP50),
       counts, scores, languageSupport,
       release: knownReleaseDate(game.releaseISO),
     };
@@ -433,6 +455,8 @@ export function runQuery(catalog, input = DEFAULT_QUERY, { libraryRules = [], li
     if (query.maxReviews !== null && (row.reviews === null || row.reviews > query.maxReviews)) return false;
     if (query.minRating !== null && (row.rating === null || row.rating < query.minRating)) return false;
     if (query.maxRating !== null && (row.rating === null || row.rating > query.maxRating)) return false;
+    if (query.minPlaytime !== null && (row.playtime === null || row.playtime < query.minPlaytime)) return false;
+    if (query.maxPlaytime !== null && (row.playtime === null || row.playtime > query.maxPlaytime)) return false;
     if (constrainedFeatures.some(feature => !isFeatureKnown(game, feature))) return false;
     if (query.has.some(id => !game.featureIds.includes(id))) return false;
     if (query.not.some(id => game.featureIds.includes(id))) return false;
@@ -454,9 +478,10 @@ export function runQuery(catalog, input = DEFAULT_QUERY, { libraryRules = [], li
     else if (sortField === 'features') primary = compareNullable(count(a), count(b), direction);
     else if (sortField === 'reviews') primary = compareNullable(a.reviews, b.reviews, direction);
     else if (sortField === 'rating') primary = compareNullable(a.rating, b.rating, direction);
+    else if (sortField === 'playtime') primary = compareNullable(a.playtime, b.playtime, direction);
     else if (sortField === 'title') primary = direction * byTitle(a, b);
     else if (sortField === 'release') primary = compareNullable(a.release, b.release, direction);
-    if (sortField === 'features' || sortField === 'rating') return primary || byReviews(a, b) || byTitle(a, b) || a.game.id - b.game.id;
+    if (sortField === 'features' || sortField === 'rating' || sortField === 'playtime') return primary || byReviews(a, b) || byTitle(a, b) || a.game.id - b.game.id;
     return primary || byScore(a, b) || byFeatures(a, b) || byReviews(a, b) || byTitle(a, b) || a.game.id - b.game.id;
   });
   const total = matches.length;

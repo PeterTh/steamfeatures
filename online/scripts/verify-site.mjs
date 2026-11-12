@@ -2,6 +2,8 @@ import { readFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { checkedAchievementState, achievementStateIndex, validateAchievementStateDescriptor } from './achievement-refresh.mjs';
+import { checkedPlaytimeState, validatePlaytimeStateDescriptor, playtimeIndex } from './review-playtime-state.mjs';
+import { PLAYTIME_FIELDS } from './review-playtime.mjs';
 import { isDeepStrictEqual } from 'node:util';
 import { brotliDecompressSync, gunzipSync } from 'node:zlib';
 import { prepareCatalog } from '../src/query.mjs';
@@ -126,6 +128,19 @@ export async function verifySite(directory = resolve(ROOT, 'dist'), { minimumGam
         (game.knownFeatureGroups?.includes('achievement-sets') === true) !== known) throw new Error('Achievement checkpoint does not match game ' + game.id);
     }
   }
+  // Every published playtime value must be the projection of the published state.
+  const playtimeGames = catalog.games.filter(game => PLAYTIME_FIELDS.some(key => Object.hasOwn(game, key)));
+  if (playtimeGames.length && !manifest.reviewPlaytimeState) throw new Error('Review playtime requires a persistent playtime checkpoint');
+  if (manifest.reviewPlaytimeState) {
+    validatePlaytimeStateDescriptor(manifest.reviewPlaytimeState);
+    const state = checkedPlaytimeState(await readFile(resolve(data, manifest.reviewPlaytimeState.file)), manifest.reviewPlaytimeState);
+    if (catalog.sources?.reviewPlaytime?.sha256 !== manifest.reviewPlaytimeState.sha256) throw new Error('Review playtime checkpoint provenance mismatch');
+    const index = playtimeIndex(state);
+    for (const game of catalog.games) {
+      const expected = index.get(game.id);
+      if (PLAYTIME_FIELDS.some(key => game[key] !== expected?.[key])) throw new Error('Review playtime checkpoint does not match game ' + game.id);
+    }
+  }
   if (manifest.gameCredits) await verifyGameCredits(data, manifest.gameCredits, catalog.games, manifest.current.binary?.sha256);
   if (manifest.gameImages) await verifyGameImages(data, manifest.gameImages);
   if (manifest.previous) await catalogBytes(data, manifest.previous);
@@ -138,7 +153,7 @@ export async function verifySite(directory = resolve(ROOT, 'dist'), { minimumGam
     if (Object.keys(archive.apps).length !== manifest.steamArchive.apps) throw new Error('Steam raw archive app count does not match its manifest.');
   }
   const provenance = JSON.parse(await readFile(resolve(site, 'provenance-lock.json'), 'utf8'));
-  if (!isDeepStrictEqual(provenance.achievementState, manifest.achievementState) || !isDeepStrictEqual(provenance.gameCredits, manifest.gameCredits) || !isDeepStrictEqual(provenance.gameImages, manifest.gameImages) || provenance.catalog?.sha256 !== manifest.current.sha256 || !isDeepStrictEqual(provenance.catalog?.binary, manifest.current.binary) ||
+  if (!isDeepStrictEqual(provenance.achievementState, manifest.achievementState) || !isDeepStrictEqual(provenance.reviewPlaytimeState, manifest.reviewPlaytimeState) || !isDeepStrictEqual(provenance.gameCredits, manifest.gameCredits) || !isDeepStrictEqual(provenance.gameImages, manifest.gameImages) || provenance.catalog?.sha256 !== manifest.current.sha256 || !isDeepStrictEqual(provenance.catalog?.binary, manifest.current.binary) ||
       !isDeepStrictEqual(provenance.catalog?.progressive, manifest.current.progressive) || provenance.refreshState?.sha256 !== manifest.refreshState.sha256 || provenance.steamArchive?.sha256 !== manifest.steamArchive.sha256) {
     throw new Error('Provenance lock does not match the manifest.');
   }

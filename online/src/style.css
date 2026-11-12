@@ -29,7 +29,8 @@ main{padding-top:1.3rem}.masthead{justify-content:flex-start;gap:1.25rem;flex-wr
 main{max-width:none}main>*{max-width:1936px;margin-inline:auto}#results{max-width:max(1936px,calc(var(--rank) + var(--game) + var(--score) + var(--feature-total,0) * var(--cell) + var(--matrix-gutter,2px)))}
 @media(max-width:650px){.picker-tabs{gap:.35rem}.credit-fields{grid-template-columns:1fr}}
 .feature-action .icon{width:1rem;height:1rem;pointer-events:none}
-.count-controls{display:flex;align-items:center;flex-wrap:wrap;gap:.4rem 1.4rem;font-size:.875rem}.count-controls .toggle-control{width:auto}.review-ranges{display:grid;grid-template-columns:repeat(2,minmax(0,21rem));gap:1rem;max-width:43rem;padding:.5rem 3px}.review-range legend{padding:0;margin-bottom:.5rem;color:var(--muted);font-size:.875rem}.review-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.75rem}.review-fields label{display:flex;flex-direction:column;gap:.3rem;min-width:0;color:var(--muted);font-size:.8rem}.review-fields input{width:100%;min-width:0;padding:.4rem .55rem;font:inherit;font-size:.9rem;font-variant-numeric:tabular-nums;color:var(--text);background:var(--bg);border:1px solid #496178;border-radius:.3rem}.review-fields input[aria-invalid=true]{border-color:#ce8b78}
+.count-controls{display:flex;align-items:center;flex-wrap:wrap;gap:.4rem 1.4rem;font-size:.875rem}.count-controls .toggle-control{width:auto}.review-ranges{display:grid;grid-template-columns:repeat(3,minmax(0,21rem));gap:1rem;max-width:65rem;padding:.5rem 3px}.review-range legend{padding:0;margin-bottom:.5rem;color:var(--muted);font-size:.875rem}.review-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.75rem}.review-fields label{display:flex;flex-direction:column;gap:.3rem;min-width:0;color:var(--muted);font-size:.8rem}.review-fields input{width:100%;min-width:0;padding:.4rem .55rem;font:inherit;font-size:.9rem;font-variant-numeric:tabular-nums;color:var(--text);background:var(--bg);border:1px solid #496178;border-radius:.3rem}.review-fields input[aria-invalid=true]{border-color:#ce8b78}
+@media(max-width:1100px){.review-ranges{grid-template-columns:repeat(2,minmax(0,21rem));max-width:43rem}}
 @media(max-width:650px){.count-controls{gap:.4rem .9rem}.review-ranges{grid-template-columns:minmax(0,1fr);max-width:24rem}}
 #feature-options .feature-option{box-shadow:inset 2px 0 var(--group-color);padding-left:.5rem}
 #feature-options .option-name>.icon{color:var(--group-color)}
@@ -232,3 +233,11 @@ main{max-width:none}main>*{max-width:1936px;margin-inline:auto}#results{max-widt
 @media(max-width:800px){#advanced-query,#advanced-highlights,#advanced-line-numbers{font-size:1rem}#advanced-query{max-height:180px}.advanced-panel{padding-top:0}.advanced-actions{gap:.4rem}.advanced-actions .language-help{font-size:.75rem}.advanced-reference{grid-template-columns:1fr;gap:.2rem}.advanced-reference dd{margin-bottom:.4rem}.advanced-suggestions [role=option]{min-height:2.25rem}}
 @media(max-width:650px){#advanced-hint{flex-basis:100%;text-align:left}}
 @media(forced-colors:active){#advanced-query{color:CanvasText;caret-color:CanvasText}#advanced-highlights{visibility:hidden}#advanced-query::selection{color:HighlightText;background:Highlight}}
+.tooltip .playtime-median{font-weight:700}
+.tooltip .playtime-detail{grid-column:1/-1;display:flex;flex-wrap:wrap;align-items:flex-start;gap:0 .75rem;margin-top:-.1rem;text-align:left}
+.playtime-range{flex:none;color:var(--muted);font-size:.8rem;line-height:1}
+.playtime-bar{position:relative;display:block;flex:1;min-width:7rem;height:.4rem;margin:.2rem .35rem .95rem;background:var(--line);border-radius:.2rem}
+.playtime-band{position:absolute;top:0;bottom:0;background:#4f86b8;border-radius:.2rem}
+.playtime-mark{position:absolute;top:-.2rem;bottom:-.2rem;width:3px;margin-left:-1.5px;background:var(--accent);border-radius:1px}
+.playtime-tick{position:absolute;top:.55rem;transform:translateX(-50%);font-size:.65rem;line-height:1;color:var(--muted)}
+.playtime-basis{flex-basis:100%;margin-top:-.35rem;text-align:right;font-size:.72rem;line-height:1.3;color:#afc1d3}

@@ -24,13 +24,16 @@ import { readAchievementSets, applyAchievementSets } from './achievement-sets.mj
 import { AchievementRefreshStore, ACHIEVEMENT_STATE_SEED, decodeAchievementState, checkedAchievementState,
   validateAchievementStateDescriptor, writeAchievementState, achievementStateIndex, refreshAchievementSets } from './achievement-refresh.mjs';
 import { acquireCollectionLock } from './collect-steam-supplement.mjs';
+import { applyReviewPlaytime } from './review-playtime.mjs';
+import { PLAYTIME_STATE_SEED, PLAYTIME_REFRESH_DIRECTORY, loadPlaytimeState, writePlaytimeState, playtimeIndex, playtimeSource } from './review-playtime-state.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 export async function importCatalog({ sourceFile, output = resolve(ROOT, 'dist'), previousURL = process.env.PAGES_BASE_URL, fixture = false,
   refresh = !fixture && !sourceFile, bootstrap = false, steamLimit = Number(process.env.STEAM_REFRESH_LIMIT || 4000),
   steamStateFile, steamClient, now, finalizeSteam = false, localPreviousDirectory, steamDataFile, achievementSetsFile,
-  achievementStateFile = ACHIEVEMENT_STATE_SEED, achievementRefreshOptions,
+  achievementStateFile = ACHIEVEMENT_STATE_SEED, achievementRefreshOptions, reviewPlaytimeStateFile = PLAYTIME_STATE_SEED,
+  reviewPlaytimeWorkingFile = fixture ? undefined : resolve(PLAYTIME_REFRESH_DIRECTORY, 'state.json.gz'),
   checkpointFile = resolve(ROOT, '.cache/steam-refresh-state.json') } = {}) {
   let steamData, picsClient, achievementStore, achievementLock, ownsAchievementLock = false;
   const imagePaths = new Map();
@@ -196,6 +199,16 @@ export async function importCatalog({ sourceFile, output = resolve(ROOT, 'dist')
     normalizedGames = applyAchievementSets(normalizedGames, achievementSets.index);
     sources.achievementSets = achievementSets.source;
   }
+  // Review playtime: the checked-in seed, the published checkpoint and the refresh job's
+  // newer working copy (restored from the Actions cache) merge per game; null disables it.
+  let reviewPlaytimeState;
+  if (reviewPlaytimeStateFile) {
+    const playtime = (await loadPlaytimeState({ seedFile: reviewPlaytimeStateFile, previous,
+      localPreviousDirectory: fixture ? undefined : localPreviousDirectory, workingFile: reviewPlaytimeWorkingFile })).snapshot();
+    reviewPlaytimeState = await writePlaytimeState(playtime, dataDirectory);
+    normalizedGames = applyReviewPlaytime(normalizedGames, playtimeIndex(playtime));
+    sources.reviewPlaytime = playtimeSource(playtime, reviewPlaytimeState);
+  }
   const { tags, games } = attachCommunityTags(normalizedGames, tagsByApp);
   const coverage = summarizeCoverage(games, { tagCount: tags.length, sourceApps, redirectAliases: sourceApps - records.size, reviewRows: reviewIndex.size, sourceShards: names.length });
   validateCoverage(coverage, previous?.manifest.coverage, { fixture });
@@ -229,6 +242,7 @@ export async function importCatalog({ sourceFile, output = resolve(ROOT, 'dist')
   await retainGameImages(previous, dataDirectory, gameImages, { localPreviousDirectory });
   const manifest = { version: 1, importedAt, fixture, current, previous: retained, sources, coverage, gameCredits,
     ...(achievementState ? { achievementState, ...(achievementRefresh ? { achievementRefresh } : {}) } : {}),
+    ...(reviewPlaytimeState ? { reviewPlaytimeState } : {}),
     ...(gameImages ? { gameImages } : {}), ...(stateDescriptor ? { refreshState: stateDescriptor, refresh: refreshSummary } : {}), ...(rawDescriptor ? { steamArchive: rawDescriptor } : {}) };
   await writeFile(resolve(dataDirectory, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n');
   await mkdir(resolve(output, 'licenses'), { recursive: true });
@@ -236,7 +250,7 @@ export async function importCatalog({ sourceFile, output = resolve(ROOT, 'dist')
   await copyFile(reviewLicenseFile, resolve(output, 'licenses/leinstay-GPL-3.0.txt'));
   await writeFile(resolve(output, 'licenses/NOTICE.txt'), 'Steam Feature Atlas uses BlueBoxWare/steamdb (MIT) and leinstay/steamdb (GPL-3.0).\nThe combined catalog is distributed under GPL-3.0. Upstream game names and other publisher material retain their owners\' rights.\nPinned source revisions and checksums: ../data/manifest.json\nTransformation source: https://github.com/peterth/steamfeatures/tree/main/online\nOriginal sources: https://github.com/BlueBoxWare/steamdb and https://github.com/leinstay/steamdb\n');
   const lock = { version: 1, importedAt, fixture, sources, coverage, catalog: current, gameCredits,
-    ...(achievementState ? { achievementState } : {}), ...(gameImages ? { gameImages } : {}),
+    ...(achievementState ? { achievementState } : {}), ...(reviewPlaytimeState ? { reviewPlaytimeState } : {}), ...(gameImages ? { gameImages } : {}),
     ...(stateDescriptor ? { refreshState: stateDescriptor, refresh: refreshSummary } : {}), ...(rawDescriptor ? { steamArchive: rawDescriptor } : {}) };
   await writeFile(resolve(output, 'provenance-lock.json'), JSON.stringify(lock, null, 2) + '\n');
   console.log(JSON.stringify({ games: games.length, features: features.length,

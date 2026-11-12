@@ -29,7 +29,8 @@ const creditFields = [['developer', 'Developer'], ['publisher', 'Publisher']];
 const textFields = [['q', 'search', 'q'], ['developer', 'developer-filter', 'dev'], ['publisher', 'publisher-filter', 'pub']];
 const textFilterPatch = () => Object.fromEntries(textFields.map(([field, id]) => [field, $(id).value]));
 const reviewFields = [['minReviews', 'min-reviews', 'Minimum review count'], ['maxReviews', 'max-reviews', 'Maximum review count'],
-  ['minRating', 'min-rating', 'Minimum review rating'], ['maxRating', 'max-rating', 'Maximum review rating']];
+  ['minRating', 'min-rating', 'Minimum review rating'], ['maxRating', 'max-rating', 'Maximum review rating'],
+  ['minPlaytime', 'min-playtime', 'Minimum median playtime'], ['maxPlaytime', 'max-playtime', 'Maximum median playtime']];
 const pickerKinds = [['feature', 'Features', 'active-count'], ['tag', 'Tags', 'active-tag-count'], ['review', 'Reviews', 'active-review-count'],
   ['date', 'Release date', 'active-date-count'], ['compatibility', 'Compatibility', 'active-compatibility-count'], ['language', 'Languages', 'active-language-count'],
   ['developer', 'Developers', 'active-developer-count'], ['library', 'User Library', 'active-library-count'], ['advanced', 'Advanced', 'active-advanced-count']];
@@ -270,6 +271,33 @@ const advancedEditor = createAdvancedEditor({
     tipAnchor.setAttribute('aria-expanded', 'true');
   }
   function addPair(dl, label, value) { dl.append(element('dt', '', label), element('dd', '', value)); }
+  /** Median and middle half of reviewers' playtime, on a log scale from 0.5 h to 1,000 h. */
+  function addPlaytime(dl, g) {
+    if (g.playtimeP50 == null) {
+      if (g.reviews >= 20) addPair(dl, 'Median playtime at review', 'Not available');
+      return;
+    }
+    const [low, median, high] = [g.playtimeP25, g.playtimeP50, g.playtimeP75].map(tenths => tenths / 10);
+    // The median shares the label's row; the range and bar share one full-width row below.
+    const value = element('dd', 'playtime-median', formatHours(median)), detail = element('dd', 'playtime-detail');
+    detail.append(element('span', 'playtime-range', `middle half ${formatHours(low, false)}–${formatHours(high)}`));
+    const scale = hours => Math.min(100, Math.max(0, 100 * Math.log10(Math.max(hours, 0.5) / 0.5) / Math.log10(2000)));
+    const bar = element('span', 'playtime-bar');
+    bar.setAttribute('aria-hidden', 'true');
+    const band = element('span', 'playtime-band'), mark = element('span', 'playtime-mark');
+    band.style.left = scale(low) + '%'; band.style.width = Math.max(1, scale(high) - scale(low)) + '%'; mark.style.left = scale(median) + '%';
+    bar.append(band, mark);
+    for (const hours of [1, 10, 100, 1000]) { const tick = element('span', 'playtime-tick', hours >= 1000 ? '1k' : String(hours)); tick.style.left = scale(hours) + '%'; bar.append(tick); }
+    detail.append(bar);
+    // At least 20 reviews (and half of all reviews) record playtime; flag small samples.
+    if (g.reviews < 100) detail.append(element('span', 'playtime-basis', 'Rough estimate from few reviews'));
+    value.title = detail.title = `Playtime when the review was written, from the reviews that record it. Half of these reviewers had played less than the median; the middle half lies between the 25th and 75th percentiles.`;
+    dl.append(element('dt', '', 'Median playtime at review'), value, detail);
+  }
+  function formatHours(hours, unit = true) {
+    const text = hours >= 900 ? '900+' : hours > 0 && hours < 0.1 ? '<0.1' : String(hours);
+    return unit ? text + ' h' : text;
+  }
   function updateCardCredits(values) {
     if (!gameCard?.dl || values.developerNames === undefined) return;
     if (!gameCard.creditRows) {
@@ -405,6 +433,7 @@ const advancedEditor = createAdvancedEditor({
       addPair(dl, 'Non-accessibility total', count(non)); addPair(dl, 'All features', count(all));
       addPair(dl, g.reviewSource === 'steam' ? 'Steam-purchase reviews' : 'Reviews', fmt(g.reviews));
       if (g.positivePercent != null) addPair(dl, 'Positive reviews', g.positivePercent + '%');
+      addPlaytime(dl, g);
       addPair(dl, 'Release date', date(g.releaseISO));
       if (g.achievementCount !== undefined) addPair(dl, 'Achievements', fmt(g.achievementCount));
       if (g.metadataUpdatedAt) addPair(dl, 'Steam metadata checked', date(g.metadataUpdatedAt));
@@ -918,9 +947,9 @@ function syncControls(preserveDateDraft = false, preserveSearchDraft = false, pr
   }
   for (const [field, , label] of reviewFields) {
     if (field === 'minReviews' ? !state[field] : state[field] === null) continue;
-    const count = field.endsWith('Reviews'), minimum = field.startsWith('min');
-    const value = count ? fmt(state[field]) : state[field] + '%';
-    addChip(field, 'review-chip', `${count ? 'Reviews' : 'Positive reviews'} ${minimum ? '≥' : '≤'} ${value} ×`,
+    const count = field.endsWith('Reviews'), playtime = field.endsWith('Playtime'), minimum = field.startsWith('min');
+    const value = count ? fmt(state[field]) : playtime ? state[field] + ' h' : state[field] + '%';
+    addChip(field, 'review-chip', `${count ? 'Reviews' : playtime ? 'Median playtime' : 'Positive reviews'} ${minimum ? '≥' : '≤'} ${value} ×`,
       'Remove ' + label.toLowerCase(), () => setFilters({ [field]: field === 'minReviews' ? 0 : null }));
   }
   for (const kind of ['hasTags', 'notTags']) for (const name of state[kind]) {
@@ -1247,7 +1276,7 @@ function updateMetadata() {
   $('method-dates').textContent = `Updated ${date(data.importedAt)}. Individual games may have older data.${fileInfo}${creditsFile ? ` Developer/publisher data file: ${formatCatalogFile(creditsFile)}.` : ''}`;
 }
 
-function getView() { return { filters: state, library: { loaded: userLibrary !== null, active: hasLibraryFilters(), filters: { ...libraryFilters }, appCount: userLibrary?.appIds.length ?? 0, wishlistCount: userLibrary?.wishlistIds?.length ?? null }, highlight: highlightedFeature, matching, displayed: view.length, featureColumns: visibleFeatures.length, maxScore: latestResult?.maxScore, page: latestResult?.page, pageCount: latestResult?.pageCount, games: view.map(({ id, name, score, count, rank, reviews, positivePercent, releaseISO, earlyAccess, tagIds }) => ({ id, name, score, count, rank, reviews, positivePercent, releaseISO, earlyAccess, tags: (tagIds ?? []).map(id => data.tags[id]) })) }; }
+function getView() { return { filters: state, library: { loaded: userLibrary !== null, active: hasLibraryFilters(), filters: { ...libraryFilters }, appCount: userLibrary?.appIds.length ?? 0, wishlistCount: userLibrary?.wishlistIds?.length ?? null }, highlight: highlightedFeature, matching, displayed: view.length, featureColumns: visibleFeatures.length, maxScore: latestResult?.maxScore, page: latestResult?.page, pageCount: latestResult?.pageCount, games: view.map(({ id, name, score, count, rank, reviews, positivePercent, playtimeP50, releaseISO, earlyAccess, tagIds }) => ({ id, name, score, count, rank, reviews, positivePercent, playtimeP50, releaseISO, earlyAccess, tags: (tagIds ?? []).map(id => data.tags[id]) })) }; }
 for (const preset of PRESETS) {
   const button = element('button', 'view-button'); button.append(icon(preset.id === 'feature-leaders' ? 'trophy' : 'warning'), element('span', '', preset.title)); button.type = 'button'; button.disabled = true; button.dataset.preset = preset.id; button.title = preset.description;
   button.addEventListener('click', () => { setFilters(preset.query); setMenuOpen(false, true); }); $('presets').append(button);
