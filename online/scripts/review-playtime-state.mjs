@@ -1,5 +1,5 @@
 /** Maintained review playtime: a compact per-game state (scheduling facts plus the
- * published summary) and the browser projection. Full
+ * published summary), a daily budgeted refresh and the browser projection. Full
  * responses are journaled separately and archived privately; this state is what the
  * site publishes as its maintenance checkpoint. */
 import { createHash } from 'node:crypto';
@@ -8,16 +8,21 @@ import { mkdir, readFile, writeFile, rename } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
+import { setTimeout as pause } from 'node:timers/promises';
 import { createGunzip, gunzipSync, gzipSync } from 'node:zlib';
-import { verifyPlaytime, PURCHASE_TYPE } from './steam-playtime.mjs';
+import { createSteamClient } from './steam-client.mjs';
+import { measurePlaytime, purchaseTypeFor, verifyPlaytime, PURCHASE_TYPE, FULL_PAGING_MAX_REVIEWS, PAGE_SIZE, MIN_REVIEWS } from './steam-playtime.mjs';
 import { summarizePlaytime, knownPlaytimeReviews, PLAYTIME_CAP_TENTHS, MIN_KNOWN_REVIEWS } from './review-playtime.mjs';
 import { download, sha256 } from './sources.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 export const PLAYTIME_STATE_FORMAT = 'steam-feature-atlas-playtime-state-v1';
 export const PLAYTIME_STATE_SEED = resolve(ROOT, 'data/review-playtime-state.json.gz');
-/** Working directory for a newer working copy of the state, merged by builds when present. */
+/** Working directory of the refresh job: its state (cached between runs) and journals. */
 export const PLAYTIME_REFRESH_DIRECTORY = resolve(ROOT, '.cache/review-playtime-refresh');
+/** Early reviewers cannot have played long, so young games are measured again at these
+ * ages (days after release) while the previous measurement is less than half as old. */
+export const FOLLOW_UP_DAYS = Object.freeze([30, 90, 365]);
 const DAY = 86400000;
 const MAX_STATE_BYTES = 16 * 1024 * 1024;
 const iso = value => new Date(value).toISOString();
@@ -206,6 +211,112 @@ export async function seedReviewPlaytimeState({ directory = resolve(ROOT, '.cach
   if (last) state.pacing.lastResponseAt = last;
   await savePlaytimeState(state, output);
   return { apps: Object.keys(state.apps).length, summarized: playtimeIndex(state).size, bytes: (await readFile(output)).length, output };
+}
+
+/** Conservative request estimate: paging small games, bands (plus a possible
+ * population check) for the rest. */
+export const estimatedRequests = reviews => reviews <= FULL_PAGING_MAX_REVIEWS ? Math.ceil(Math.max(reviews, 1) / PAGE_SIZE) + 1 : 12;
+
+function followUpDue(game, old, now) {
+  const release = Date.parse(game.releaseISO);
+  if (!Number.isFinite(release)) return false;
+  const age = (now - release) / DAY, measuredAge = (Date.parse(old.measuredAt) - release) / DAY;
+  return FOLLOW_UP_DAYS.some(days => age >= days && measuredAge < days / 2);
+}
+
+/** Coverage first: never-measured games (0), then retries and games without a summary
+ * that have grown (1), then follow-ups for young games (2); leftover budget re-measures
+ * established estimates whose review count has at least doubled (3). */
+export function selectPlaytimeChecks(games, entries, now) {
+  const queue = [];
+  for (const game of games) {
+    if (!Number.isSafeInteger(game.reviews) || game.reviews < MIN_REVIEWS) continue;
+    const old = entries.get(game.id);
+    if (old?.retryAt && Date.parse(old.retryAt) > now) continue;
+    let priority = null, order = game.reviews;
+    if (!old) priority = 0;
+    else if (old.outcome !== 'success' || !old.measuredAt) priority = 1;
+    else if (!old.summary) {
+      if (now - Date.parse(old.checkedAt) >= 7 * DAY && game.reviews >= Math.max(old.catalogReviews * 1.25, old.catalogReviews + 5)) priority = 1;
+    } else if (followUpDue(game, old, now)) priority = 2;
+    else if (game.reviews >= 2 * Math.max(old.catalogReviews, 1) && now - Date.parse(old.measuredAt) >= 30 * DAY) { priority = 3; order = game.reviews / Math.max(old.catalogReviews, 1); }
+    if (priority !== null) queue.push({ id: game.id, reviews: game.reviews, genres: game.genres, priority, order, cost: estimatedRequests(game.reviews) });
+  }
+  return queue.sort((a, b) => a.priority - b.priority || b.order - a.order || a.id - b.id);
+}
+
+class PlaytimeBudgetError extends Error { constructor() { super('Review playtime refresh budget reached'); this.name = 'PlaytimeBudgetError'; } }
+const PRIORITY_NAMES = ['new', 'coverage', 'followUp', 'grown'];
+
+/** A separately budgeted serial refresh. HTTP attempts (including retries) and elapsed
+ * time count against a per-UTC-day allowance that survives reruns through the state. */
+export async function refreshReviewPlaytime({ state, games, fetchImpl = globalThis.fetch, now = Date.now, sleep,
+  maxRequests = 500, maxDurationMs = 15 * 60000, spacingMs = 1200, recordResponse = async () => {}, checkpoint = async () => {}, progress = async () => {} }) {
+  if (!count(maxRequests) || maxRequests > 5000 || !count(maxDurationMs) || maxDurationMs > 45 * 60000 ||
+    !Number.isSafeInteger(spacingMs) || spacingMs < 1000 || spacingMs > 60000) throw new Error('Invalid review playtime refresh budget');
+  const started = now(), date = iso(started).slice(0, 10);
+  if (state.budget.date !== date) state.budget = { date, attempts: 0, elapsedMs: 0 };
+  const budget = state.budget, priorElapsed = budget.elapsedMs, pacing = state.pacing;
+  spacingMs = Math.max(spacingMs, pacing.minimumSpacingMs);
+  const summary = { attempted: 0, measured: 0, ...Object.fromEntries(PRIORITY_NAMES.map(name => [name, 0])), unavailable: 0, failures: 0, deferred: 0, reason: 'complete' };
+  const queue = selectPlaytimeChecks(games, state.entries(), started);
+  summary.queued = queue.length;
+  const resumeAt = Math.max(Date.parse(pacing.cooldownAt) || 0, (Date.parse(pacing.lastResponseAt) || 0) + spacingMs);
+  if (resumeAt > started + 60000 || !maxRequests || !maxDurationMs) return { ...summary, reason: resumeAt > started + 60000 ? 'cooldown' : 'disabled',
+    ...(resumeAt > started + 60000 ? { cooldownAt: iso(resumeAt) } : {}) };
+  const elapsed = () => priorElapsed + Math.max(0, now() - started);
+  const saveBudget = () => { budget.elapsedMs = elapsed(); };
+  const client = createSteamClient({ spacingMs, throttleSpacingMs: Math.max(spacingMs, 1500), maxRequests: 10000, maxRetries: 4, now,
+    sleep: async ms => {
+      if (budget.attempts >= maxRequests || ms >= maxDurationMs - elapsed()) throw new PlaytimeBudgetError();
+      await (sleep ?? pause)(ms);
+    },
+    fetchImpl: async (url, options) => {
+      if (budget.attempts >= maxRequests || elapsed() >= maxDurationMs) throw new PlaytimeBudgetError();
+      budget.attempts++; summary.attempted++; saveBudget();
+      return fetchImpl(url, { ...options, signal: AbortSignal.any([options.signal, AbortSignal.timeout(Math.max(1, Math.ceil(maxDurationMs - elapsed())))]) });
+    },
+    recordResponse: async response => { await recordResponse(response); pacing.lastResponseAt = iso(now()); saveBudget(); },
+    onRequestFailure: async event => {
+      if (event.errorName === 'PlaytimeBudgetError') return;
+      pacing.lastResponseAt = iso(now());
+      pacing.minimumSpacingMs = Math.max(pacing.minimumSpacingMs, event.spacingMs);
+      const delay = Math.max(event.retryAfterMs ?? 0, event.retryDelayMs ?? 0, event.status === 429 && !event.willRetry ? 60000 : 0);
+      if (delay) pacing.cooldownAt = iso(Math.max(Date.parse(pacing.cooldownAt) || 0, now() + delay));
+      saveBudget();
+    },
+  });
+  try {
+    for (const game of queue) {
+      if (budget.attempts >= maxRequests || elapsed() >= maxDurationMs) { summary.reason = 'budget'; break; }
+      // Skip games that cannot finish within today's allowance; cheaper ones may still fit.
+      if (budget.attempts + game.cost > maxRequests) { summary.deferred++; continue; }
+      const old = state.get(game.id);
+      try {
+        const result = await measurePlaytime(client, { id: game.id, purchase_type: old?.purchaseType ?? purchaseTypeFor(game), reviews: game.reviews });
+        const record = { outcome: 'success', ...result }, measured = summarizePlaytime(record), checkedAt = iso(now());
+        state.put(game.id, { checkedAt, outcome: 'success', measuredAt: checkedAt, purchaseType: result.purchaseType, catalogReviews: game.reviews,
+          method: result.method, total: result.total, known: knownPlaytimeReviews(record), ...(measured ? { summary: measured.slice(1) } : {}) });
+        summary.measured++; summary[PRIORITY_NAMES[game.priority]]++;
+      } catch (error) {
+        if (error instanceof PlaytimeBudgetError) { summary.reason = 'budget'; break; }
+        const failures = (old && old.outcome !== 'success' ? old.failures ?? 0 : 0) + 1, checkedAt = iso(now());
+        if (error.resultCode === 42) {
+          // NoMatch: delisted or hidden. Back off 30, 90, then 180 days; keep any earlier measurement.
+          state.put(game.id, { ...usable(old), checkedAt, outcome: 'unavailable', failures, retryAt: iso(now() + [30, 90, 180][Math.min(failures, 3) - 1] * DAY) });
+          summary.unavailable++;
+        } else {
+          state.put(game.id, { ...usable(old), checkedAt, outcome: 'error', failures, error: String(error.message).slice(0, 500),
+            retryAt: iso(now() + Math.min(7 * DAY, 3600000 * 2 ** Math.min(failures - 1, 8))) });
+          // Stop this optional phase on transport, service or schema errors; known facts stay usable.
+          summary.failures++; summary.reason = 'service-error'; summary.error = error.message; break;
+        }
+      }
+      await checkpoint(); await progress(summary);
+    }
+  } finally { saveBudget(); await checkpoint(true); }
+  return { ...summary, dailyAttempts: budget.attempts, elapsedMs: budget.elapsedMs,
+    remaining: selectPlaytimeChecks(games, state.entries(), now()).length, spacingMs: client.spacingMs };
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

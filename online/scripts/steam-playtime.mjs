@@ -133,7 +133,7 @@ export async function measurePlaytime(client, { id, purchase_type: seededPurchas
     if (byId.size >= total) {
       const rows = [...byId.values()];
       return measured({ method: 'pages', total: rows.length, cumulative: cumulativeFromReviews(rows), measuredEdges: PLAYTIME_EDGES_HOURS.length,
-        unknownAtReview: rows.filter(row => row[3] === null).length });
+        unknownAtReview: rows.filter(row => row[3] === null).length, reviewRows: rows });
     }
   }
   // Band filters skip reviews without playtime_at_review (mostly old reviews).
@@ -147,7 +147,7 @@ export async function measurePlaytime(client, { id, purchase_type: seededPurchas
   }
   const measuredEdges = cumulative.length;
   while (cumulative.length < PLAYTIME_EDGES_HOURS.length) cumulative.push(cumulative.at(-1) ?? 0);
-  return measured({ method: 'bands', total, cumulative, measuredEdges, unknownAtReview: Math.max(0, total - known) });
+  return measured({ method: 'bands', total, cumulative, measuredEdges, unknownAtReview: Math.max(0, total - known), reviewRows: [...byId.values()] });
 }
 
 /** The matching population lands within ~2% of the catalog's summary count;

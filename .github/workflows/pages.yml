@@ -88,6 +88,15 @@ jobs:
             steam-refresh-v3-
             steam-refresh-v2-
             steam-refresh-v1-
+      # The playtime job runs in parallel and saves its working state when it finishes, so
+      # this restores the previous run's measurements (a one-day lag) for publication.
+      - name: Restore the review playtime job's latest working state
+        if: ${{ !inputs.bootstrap_release }}
+        uses: actions/cache/restore@v4
+        with:
+          path: online/.cache/review-playtime-refresh/state.json.gz
+          key: review-playtime-v1-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: review-playtime-v1-
       - name: Import pinned bulk sources and build
         if: ${{ !inputs.bootstrap_release }}
         run: npm run build
@@ -150,7 +159,7 @@ jobs:
         if: ${{ always() && !inputs.bootstrap_release && steps.journals.outputs.count != '0' && steps.journals.outputs.count != '' }}
         uses: actions/upload-artifact@v4
         with:
-          name: new-steam-responses-${{ github.run_id }}-${{ github.run_attempt }}
+          name: new-steam-responses-catalog-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/steam-responses-${{ github.run_id }}-${{ github.run_attempt }}.tar
           compression-level: 0
           retention-days: 7
@@ -168,37 +177,111 @@ jobs:
           path: online/dist/provenance-lock.json
           retention-days: 7
 
+  # Review playtime runs beside the build on its own runner and daily budget. Its working
+  # state reaches the next build through the Actions cache (a one-day lag) and its
+  # responses go to the private archive. It never blocks or delays deployment.
+  playtime:
+    if: ${{ !inputs.bootstrap_release }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      pages: read
+    outputs:
+      new_responses: ${{ steps.journals.outputs.count }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+        working-directory: online
+      - name: Configure Pages
+        id: pages
+        uses: actions/configure-pages@v5
+      - name: Restore the latest working state
+        uses: actions/cache/restore@v4
+        with:
+          path: online/.cache/review-playtime-refresh/state.json.gz
+          key: review-playtime-v1-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: review-playtime-v1-
+      - name: Measure due games within the daily budget
+        run: node scripts/refresh-review-playtime.mjs
+        working-directory: online
+        env:
+          PAGES_BASE_URL: ${{ steps.pages.outputs.base_url }}
+          STEAM_PLAYTIME_REQUEST_LIMIT: '500'
+          STEAM_PLAYTIME_TIME_LIMIT_MS: '900000'
+          STEAM_PLAYTIME_REQUEST_SPACING_MS: '1200'
+      - name: Save the working state, including failed runs
+        if: ${{ always() }}
+        uses: actions/cache/save@v4
+        with:
+          path: online/.cache/review-playtime-refresh/state.json.gz
+          key: review-playtime-v1-${{ github.run_id }}-${{ github.run_attempt }}
+      - name: Collect this run's response journals
+        id: journals
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          dir=online/.cache/review-playtime-refresh/responses count=0
+          if [ -d "$dir" ]; then count="$(find "$dir" -maxdepth 1 -type f -name '*.json.gz' | wc -l)"; fi
+          echo "count=$count" >> "$GITHUB_OUTPUT"
+          echo "$count review playtime responses"
+          if [ "$count" -gt 0 ]; then tar -cf "$RUNNER_TEMP/steam-playtime-responses-${{ github.run_id }}-${{ github.run_attempt }}.tar" -C "$dir" .; fi
+      - name: Hand the journals to the archive job
+        if: ${{ always() && steps.journals.outputs.count != '0' && steps.journals.outputs.count != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: new-steam-responses-playtime-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/steam-playtime-responses-${{ github.run_id }}-${{ github.run_attempt }}.tar
+          compression-level: 0
+          retention-days: 7
+
   # Raw responses are kept privately and durably; artifacts expire and caches can be evicted.
   # A failure here marks the run failed but never blocks or undoes the deployment.
   archive-responses:
-    needs: build
-    if: ${{ always() && needs.build.outputs.new_responses != '' && needs.build.outputs.new_responses != '0' }}
+    needs: [build, playtime]
+    if: ${{ always() && ((needs.build.outputs.new_responses != '' && needs.build.outputs.new_responses != '0') || (needs.playtime.outputs.new_responses != '' && needs.playtime.outputs.new_responses != '0')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions: {}
     steps:
-      - uses: actions/download-artifact@v4
+      - name: Download the build's journals
+        if: ${{ needs.build.outputs.new_responses != '' && needs.build.outputs.new_responses != '0' }}
+        uses: actions/download-artifact@v4
         with:
-          name: new-steam-responses-${{ github.run_id }}-${{ github.run_attempt }}
+          name: new-steam-responses-catalog-${{ github.run_id }}-${{ github.run_attempt }}
+          path: journals
+      - name: Download the playtime job's journals
+        if: ${{ needs.playtime.outputs.new_responses != '' && needs.playtime.outputs.new_responses != '0' }}
+        uses: actions/download-artifact@v4
+        with:
+          name: new-steam-responses-playtime-${{ github.run_id }}-${{ github.run_attempt }}
+          path: journals
       - name: Upload to the private data archive
         shell: bash
+        working-directory: journals
         env:
           GH_TOKEN: ${{ secrets.DATA_ARCHIVE_TOKEN }}
           ARCHIVE_REPO: PeterTh/steamfeatures-data
-          NAME: steam-responses-${{ github.run_id }}-${{ github.run_attempt }}.tar
         run: |
           set -euo pipefail
           if [ -z "$GH_TOKEN" ]; then echo "::error::DATA_ARCHIVE_TOKEN is not set"; exit 1; fi
           tag="responses-$(date -u +%Y-%m)"
-          sha256sum "$NAME" > "$NAME.sha256"
           if ! gh release view "$tag" --repo "$ARCHIVE_REPO" > /dev/null 2>&1; then
             gh release create "$tag" --repo "$ARCHIVE_REPO" --title "Steam responses $(date -u +%Y-%m)" \
-              --notes "Raw Steam response journals from daily workflow runs: one tar per run, named by run ID and attempt, with a SHA-256 file."
+              --notes "Raw Steam response journals from daily workflow runs: one tar per job and run, named by run ID and attempt, with a SHA-256 file."
           fi
-          gh release upload "$tag" "$NAME" "$NAME.sha256" --repo "$ARCHIVE_REPO" --clobber
-          uploaded="$(gh release view "$tag" --repo "$ARCHIVE_REPO" --json assets --jq ".assets[] | select(.name == \"$NAME\") | .size")"
-          if [ "$uploaded" != "$(stat -c %s "$NAME")" ]; then echo "::error::Uploaded size $uploaded does not match"; exit 1; fi
-          echo "Archived $NAME ($uploaded bytes) in $ARCHIVE_REPO release $tag"
+          for name in *.tar; do
+            sha256sum "$name" > "$name.sha256"
+            gh release upload "$tag" "$name" "$name.sha256" --repo "$ARCHIVE_REPO" --clobber
+            uploaded="$(gh release view "$tag" --repo "$ARCHIVE_REPO" --json assets --jq ".assets[] | select(.name == \"$name\") | .size")"
+            if [ "$uploaded" != "$(stat -c %s "$name")" ]; then echo "::error::Uploaded size of $name does not match"; exit 1; fi
+            echo "Archived $name ($uploaded bytes) in $ARCHIVE_REPO release $tag"
+          done
 
   deploy:
     needs: build
