@@ -22,6 +22,8 @@ export const STEAM_DATA_REQUEST = Object.freeze({
 });
 
 const API_BASE = 'https://api.steampowered.com/';
+// EResult Busy (10), Timeout (16) and ServiceUnavailable (20) arrive with HTTP 200.
+const TRANSIENT_ERESULTS = new Set([10, 16, 20]);
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 function integer(value, name, minimum, maximum) {
@@ -137,6 +139,10 @@ export function createSteamClient({
       if (delay > 0) await sleep(delay);
       counters.requests++;
       if (attempt > 0) counters.retries++;
+      // Steam caches anonymous WebAPI responses (max-age 600), including transient
+      // failures such as EResult Busy. The API ignores unknown URL parameters, so a
+      // retry marker gives each retry a fresh answer instead of the cached failure.
+      if (attempt > 0 && !appDetails) url.searchParams.set('retry', String(attempt));
       let retryable = false;
       let responseStatus = null;
       async function record(body, response) {
@@ -197,6 +203,8 @@ export function createSteamClient({
         if (resultCode && resultCode !== '1') {
           const error = new Error(`Steam ${method}: result ${resultCode}`);
           error.resultCode = Number(resultCode);
+          // Busy, Timeout and ServiceUnavailable are transient server states.
+          retryable = TRANSIENT_ERESULTS.has(error.resultCode);
           throw error;
         }
         if (appDetails) return requirementsBody(body, input.appids);
@@ -241,6 +249,14 @@ export function createSteamClient({
       if (typeof hashOnly !== 'boolean') throw new Error('hashOnly must be a boolean');
       return enqueue(() => request('IPlayerService/GetGameAchievements', { appid, language: STEAM_CONTEXT.language,
         ...(hashOnly ? { hash_only: true } : {}) }));
+    },
+
+    /** Documented, keyless review query; the caller builds and validates the
+     * filters. Replaces the deprecated store.steampowered.com/appreviews. */
+    async getAppReviews(input) {
+      if (!input || typeof input !== 'object' || Array.isArray(input)) throw new Error('GetAppReviews input must be an object');
+      integer(input.appid, 'appid', 1, 0xffffffff);
+      return enqueue(() => request('IUserReviewsService/GetAppReviews', input));
     },
 
     async getRequirements(appid) {

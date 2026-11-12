@@ -219,3 +219,30 @@ A three-request live smoke test on October 23 verified the actual hash-only tran
 The final suite passed **392 tests**, including new-game priority, daily attempt/time limits across reruns, hash-change interruption/resume, unavailable-result preservation, Retry-After/throttle persistence, full service-health controls and deployment checkpoint/projection verification. Edge 155 and Firefox 153 each passed 20 focused browser checks against the refreshed **203,685-game** preview, including all three added positives and zero maintenance-checkpoint downloads. The default released/20+ reviews view now contains **111** supporting games; unrestricted filters contain **179**.
 
 Against the same current production catalog, the release preview's initial/remainder files grew by **2,503 / 2,138 bytes Brotli** (4,641 total), or **1,216 / 1,154 bytes gzip** (2,370 total). The separate 1,418,274-byte achievement seed/checkpoint is build-only. These measurements include the completed top-up and updated provenance; the earlier 176-game projection measurement above remains a separate, older snapshot comparison.
+
+## Review playtime
+
+The playtime collector measures how long reviewers had played each game when they wrote their reviews. It runs separately from daily deployments and the supplemental collection, and it does not publish a browser feature by itself:
+
+```sh
+npm --prefix online run collect:playtime
+```
+
+It uses Valve's documented, keyless [`IUserReviewsService/GetAppReviews`](https://partner.steamgames.com/doc/webapi/IUserReviewsService#GetAppReviews). The old `store.steampowered.com/appreviews/<appid>?json=1` endpoint is deprecated and now redirects to the store homepage. Requests use recent order, all languages and anonymous access. HowLongToBeat values in the leinstay bulk source are not used: HowLongToBeat's terms prohibit scraping and redistributing datasets of its content.
+
+**Scope.** The seed freezes every live-catalog game with at least 20 reviews (`--min-reviews`), ordered by descending review count. Each game's review population matches Steam's displayed summary. For most paid games that means Steam purchases, which excludes key and giveaway activations. For free games it means all reviews; otherwise they would lose almost every review (Dota 2: 14k of 2.8M). Steam also counts all reviews for free games without the Free To Play genre (Poppy Playtime, Life is Strange - Episode 1) and for games no longer sold on Steam (Fall Guys, Forza Horizon 4). The genre is therefore only the initial guess. When a game's first-page total differs from the catalog's summary count by more than 5% and at least 20 reviews, the collector requests the other population once and keeps whichever total is closer. With the correct population, totals matched the catalog within 0.5–2%.
+
+**Measurement.** Each game starts with one page of 100 reviews, which also returns the total.
+
+- Games with at most 500 reviews are paged through completely. The histogram is exact, and each reviewer's lifetime playtime is retained.
+- Larger games, or games whose paging ends early, use `total_matching` counts with `playtime_max_hours` at 3, 7, 14, 28, 56, 112, 225, 450 and 900 hours. These are cumulative counts of reviews at or below each edge.
+- Band filters exclude reviews without `playtime_at_review`, mostly old reviews. A count with a 100,000-hour maximum gives the number of reviews with known playtime. Bands stop once a count reaches that number, and the remaining edges inherit it. `unknownAtReview` keeps those reviews out of the 900+ hour tail.
+- Paged and band-derived histograms matched exactly in live checks, confirming the inclusive "at most N hours" semantics.
+
+The measure is playtime *at review*, a property of reviewers rather than of all players. It is not time-to-beat: long linear games read shorter, and replayable or open-ended games read longer. Single pages of 100 recent reviews are not used as estimates. In testing, consecutive pages differed by up to 2.6× and favored veterans of older games.
+
+**Storage.** The checkpoint is `online/.cache/steam-playtime/playtime.sqlite` (WAL, FULL synchronous commits). Every response is journaled with gzip compression before interpretation, retaining only non-text review metadata. Review text, developer responses, hardware strings and author Steam IDs are dropped. A game is checkpointed only after all of its requests succeed; an interrupted game restarts from its first page. EResult 42 (NoMatch) is recorded as unavailable. Other failures stay unknown and stop the run after bounded retries. `--remeasure <ids> --reason <text>` makes completed apps pending again. It keeps their journaled responses and records the removed observations and the reason in the checkpoint settings. Responses and observations record their review population; in older checkpoints, an empty value means the seeded population.
+
+**Pacing.** Requests are serial, with a 1,200 ms post-response pause (`STEAM_REQUEST_SPACING_MS`, 1,000–60,000). An HTTP 429 raises the pause to at least 1,500 ms and persists that minimum. Retry-After cooldowns, the PID lock, `progress.json` and `request-failures.jsonl` behave as in the supplemental collector. `--limit N` caps requests for a partial run. `--seed-file` and `--manifest` choose the seed source. `--export-only` exports without Steam requests. Rerun the same command to resume.
+
+**Export.** On completion, the collector writes `steam-playtime.<hash>.jsonl.gz` (format `steam-feature-atlas-playtime-v1`) and `archive.json`. The header records the seed, edges, review-row layout and counts. Each app record contains its review population, method, total, cumulative counts, measured edge count, `unknownAtReview` and compact review rows. Paged games include every review; band games include their first page. Each row holds `[recommendationid, created, flags, minutesAtReview, minutesForever, minutesLastTwoWeeks, lastPlayed, language]`. Verification checks the checksum, ordering, counts, and every paged histogram against its review rows.

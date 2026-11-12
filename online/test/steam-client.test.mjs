@@ -126,6 +126,25 @@ test('failure telemetry retains HTTP, transport and API causes without treating 
   assert.equal(client.spacingMs, 1000);
 });
 
+test('transient EResults (Busy, Timeout, ServiceUnavailable) retry with backoff', async () => {
+  const timer = clock();
+  const failures = [];
+  let calls = 0;
+  const urls = [];
+  const client = createSteamClient({ ...timer, spacingMs: 1000, maxRetries: 4, onRequestFailure: event => failures.push(event), fetchImpl: async url => {
+    urls.push(new URL(url));
+    return ++calls <= 3 ? new Response('{"response":{}}', { headers: { 'x-eresult': String([10, 16, 20][calls - 1]) } }) : tagResponse();
+  } });
+  await client.getTagList();
+  // Steam caches the failure for the original URL; each retry must use a distinct one.
+  assert.deepEqual(urls.map(url => url.searchParams.get('retry')), [null, '1', '2', '3']);
+  assert.ok(urls.every(url => url.searchParams.get('input_json') === urls[0].searchParams.get('input_json')));
+  assert.deepEqual(failures.map(event => [event.resultCode, event.retryable, event.willRetry, event.retryDelayMs]),
+    [[10, true, true, 5000], [16, true, true, 10000], [20, true, true, 20000]]);
+  assert.deepEqual(client.stats, { requests: 4, retries: 3 });
+  assert.equal(client.spacingMs, 1000, 'A busy server is not a rate limit');
+});
+
 test('throttling fallback and Retry-After survive failure to write telemetry', async () => {
   const timer = clock();
   let calls = 0;
